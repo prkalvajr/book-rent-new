@@ -1,7 +1,4 @@
-| Trilha de auditoria append-only | `CatalogEndpointsTests` |
-| Auditoria dos três eventos de empréstimo | `ConcurrencyTests` |
-| Degradação com o Redis fora (leitura, empréstimo e health) | `DegradacaoTests` |
-| Retry transitório não duplicando registros | `UnitOfWorkRetryTests` |# BookRent — API de Empréstimos Concorrentes e Auditáveis
+# BookRent — API de Empréstimos Concorrentes e Auditáveis
 
 API REST em **.NET 10 LTS** para o catálogo e os empréstimos de uma biblioteca, projetada
 para rodar em **múltiplas réplicas** sem perder integridade: duas requisições simultâneas
@@ -129,6 +126,9 @@ Cobertura dos cenários que o desafio exige:
 | Conflito otimista no `PATCH` e ausência de conflito falso | `ConcurrencyTests` |
 | Cache populado na leitura e invalidado na escrita | `CatalogEndpointsTests` |
 | Trilha de auditoria append-only | `CatalogEndpointsTests` |
+| Auditoria dos três eventos de empréstimo | `ConcurrencyTests` |
+| Degradação com o Redis fora: leitura, empréstimo e health | `DegradacaoTests` |
+| Retry transitório sem duplicar registros | `UnitOfWorkRetryTests` |
 | Regras de negócio do domínio | `BookTests`, `LoanTests`, `UserTests` |
 | Regra de dependência entre camadas | `LayerDependencyTests` |
 
