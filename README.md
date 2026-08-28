@@ -103,6 +103,76 @@ Sobe em http://localhost:5080 com `ASPNETCORE_ENVIRONMENT=Development`, apontand
 
 ---
 
+## Principais decisões técnicas
+
+Resumo das decisões que sustentam a entrega. Cada uma tem sua seção detalhada adiante,
+com as alternativas consideradas e os custos assumidos; o raciocínio completo — inclusive
+o que foi recusado e por quê — está em [`docs/plano-implementacao.md`](docs/plano-implementacao.md).
+
+**1. Concorrência: atualização condicional atômica** ([detalhe](#concorrência))
+
+```sql
+UPDATE books SET available_copies = available_copies - 1
+ WHERE id = @id AND is_active AND available_copies > 0;
+```
+
+Um único comando avalia o predicado e escreve: não existe janela entre ler e decidir.
+Zero linhas afetadas **já é a resposta de negócio** (409), não um erro técnico a
+interpretar. Uma `CHECK (available_copies >= 0 AND <= total_copies)` é a rede: a garantia
+não depende de o código estar certo. Descartei token otimista na disponibilidade — otimismo
+é a escolha errada onde o conflito é a regra — e isolamento mais alto, que devolveria uma
+falha técnica no lugar de um 409 limpo.
+
+**2. Idempotência: o índice único do PostgreSQL como mutex** ([detalhe](#idempotência))
+
+`INSERT ... ON CONFLICT (endpoint, key) DO NOTHING`, na **mesma transação** do empréstimo.
+Se a requisição concorrente ainda não commitou, o `INSERT` bloqueia no índice — sem lock
+distribuído no Redis, que seria uma segunda fonte de verdade sujeita a expiração. Uma
+requisição que **falha** faz rollback e libera a chave, em vez de queimá-la.
+
+**3. Duas estratégias de concorrência, por natureza da escrita** ([detalhe](#duas-estratégias-de-propósito))
+
+Escrita **relativa** (`x = x - 1`) dispensa token: a aritmética acontece no banco, sobre o
+valor corrente. Escrita **absoluta** (`title = 'X'`) precisa. Daí o empréstimo usar `UPDATE`
+condicional e o `PATCH` usar token otimista. E o token cobre **apenas os campos
+descritivos** — se fosse `xmin`, que muda a cada escrita na linha, todo empréstimo
+derrubaria a edição de catálogo em andamento.
+
+**4. Auditoria gravada na mesma transação do fato** ([detalhe](#auditoria))
+
+Chamada explícita no caso de uso, não interceptor do `SaveChanges`: o interceptor
+registraria *mudança de linha*, não *intenção de negócio*. Tabela append-only.
+
+**5. Cache é otimização, nunca autoridade** ([detalhe](#cache))
+
+Uma chave com o snapshot do livro serve dois endpoints; invalidação com `DEL` **após o
+commit**, nunca `SET` do valor novo — o lock do banco termina no `COMMIT` e não ordena o
+que vem depois. O PostgreSQL decide todo empréstimo. Um cache defasado mostra número
+errado numa tela; nunca causa empréstimo errado.
+
+**6. Monólito modular, distribuído por réplicas** ([detalhe](#arquitetura))
+
+Fatiar catálogo e empréstimos em serviços separados tornaria impossível garantir
+"exatamente um empréstimo bem-sucedido" com uma transação local. Quatro projetos em Clean
+Architecture, com teste que quebra o build se a regra de dependência for violada.
+
+**7. Contador de exemplares, não entidade `BookCopy`**
+
+`BookCopy` é mais fiel ao domínio — cada exemplar físico teria código de barras. Recusado
+por proporcionalidade: nenhum endpoint pede a identidade do exemplar, e exemplar já
+emprestado não poderia ser apagado, exigindo um estado "aposentado" que o contador
+dispensa. Migração posterior é aditiva e não muda o contrato HTTP.
+
+**8. PostgreSQL é a única fonte de verdade, e é ele que torna N réplicas seguras**
+([detalhe](#kubernetes-correto-entre-2-e-11-réplicas))
+
+O lock mora no banco, não na aplicação: duas requisições disputando o último exemplar
+podem cair em pods diferentes e ainda assim competem pelo mesmo *row lock*. Por isso a
+corretude é indiferente ao número de réplicas — só a capacidade não é, daí o
+`Maximum Pool Size` dimensionado pelo teto do HPA.
+
+---
+
 ## Testes
 
 ```bash
