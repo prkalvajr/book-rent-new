@@ -57,5 +57,20 @@ internal sealed class AuditEventConfiguration : IEntityTypeConfiguration<AuditEv
         builder.HasIndex(auditEvent => auditEvent.OccurredAt)
             .IsDescending(true)
             .HasDatabaseName("ix_audit_events_occurred_at");
+
+        // Os filtros de GET /audit-events fazem parte do contrato e precisam de indice
+        // na tabela que mais cresce. O de correlationId e o mais importante: responde
+        // "o que aconteceu nesta requisicao?", que e a pergunta feita durante um
+        // incidente — justamente quando um seq scan doi mais.
+        builder.HasIndex(auditEvent => auditEvent.CorrelationId)
+            .HasDatabaseName("ix_audit_events_correlation_id");
+
+        builder.HasIndex(auditEvent => new { auditEvent.Action, auditEvent.OccurredAt })
+            .IsDescending(false, true)
+            .HasDatabaseName("ix_audit_events_action");
+
+        builder.HasIndex(auditEvent => new { auditEvent.Actor, auditEvent.OccurredAt })
+            .IsDescending(false, true)
+            .HasDatabaseName("ix_audit_events_actor");
     }
 }
