@@ -14,6 +14,10 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddStructuredLogging();
 builder.AddOpenTelemetry();
 
+// Relogio injetado: o dominio recebe o instante como parametro e os testes nao
+// precisam de truque para controla-lo.
+builder.Services.AddSingleton(TimeProvider.System);
+
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 
@@ -32,7 +36,9 @@ builder.Services.AddProblemDetails(options =>
     };
 });
 
+// Ordem importa: o primeiro handler que reconhecer a excecao responde.
 builder.Services.AddExceptionHandler<DomainExceptionHandler>();
+builder.Services.AddExceptionHandler<PersistenceExceptionHandler>();
 builder.Services.AddOpenApi();
 
 var app = builder.Build();

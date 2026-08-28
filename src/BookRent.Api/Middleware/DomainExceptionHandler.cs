@@ -7,8 +7,10 @@ using Microsoft.AspNetCore.Mvc;
 namespace BookRent.Api.Middleware;
 
 /// <summary>
-/// Traduz <see cref="DomainException"/> em uma resposta 409 com Problem Details,
-/// preservando o codigo da regra violada. Demais excecoes caem no handler padrao (500).
+/// Traduz <see cref="DomainException"/> em Problem Details, com o status derivado do
+/// codigo da regra violada (ver <see cref="DomainErrorStatusMap"/>) e o codigo preservado
+/// na extension <c>code</c> — que e o contrato estavel com o cliente, nao a mensagem.
+/// Demais excecoes caem no handler padrao (500).
 /// </summary>
 internal sealed class DomainExceptionHandler(
     IProblemDetailsService problemDetailsService,
@@ -34,7 +36,9 @@ internal sealed class DomainExceptionHandler(
             .GetRequiredService<ICorrelationContext>()
             .CorrelationId;
 
-        httpContext.Response.StatusCode = StatusCodes.Status409Conflict;
+        var statusCode = DomainErrorStatusMap.ToStatusCode(domainException.Code);
+
+        httpContext.Response.StatusCode = statusCode;
 
         return await problemDetailsService.TryWriteAsync(new ProblemDetailsContext
         {
@@ -42,10 +46,10 @@ internal sealed class DomainExceptionHandler(
             Exception = domainException,
             ProblemDetails = new ProblemDetails
             {
-                Status = StatusCodes.Status409Conflict,
-                Title = "Regra de negocio violada",
+                Status = statusCode,
+                Title = DomainErrorStatusMap.ToTitle(statusCode),
                 Detail = domainException.Message,
-                Type = "https://datatracker.ietf.org/doc/html/rfc9110#section-15.5.10",
+                Type = $"https://httpstatuses.io/{statusCode}",
                 Extensions =
                 {
                     ["code"] = domainException.Code,

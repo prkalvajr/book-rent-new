@@ -2,8 +2,8 @@ namespace BookRent.Api.Endpoints;
 
 /// <summary>
 /// Ponto unico de registro dos endpoints de negocio.
-/// Cada grupo (books, users, loans, audit-events) sera adicionado aqui conforme
-/// for implementado, mantendo o <c>Program.cs</c> enxuto.
+/// Cada grupo (books, users, loans, audit-events) e adicionado aqui conforme
+/// e implementado, mantendo o <c>Program.cs</c> enxuto.
 /// </summary>
 internal static class EndpointRouteBuilderExtensions
 {
@@ -11,15 +11,11 @@ internal static class EndpointRouteBuilderExtensions
     {
         ArgumentNullException.ThrowIfNull(endpoints);
 
-        var api = endpoints.MapGroup(string.Empty)
-            .WithTags("BookRent");
+        endpoints.MapBookEndpoints();
 
-        // api.MapBookEndpoints();
-        // api.MapUserEndpoints();
-        // api.MapLoanEndpoints();
-        // api.MapAuditEventEndpoints();
-
-        _ = api;
+        // endpoints.MapUserEndpoints();
+        // endpoints.MapLoanEndpoints();
+        // endpoints.MapAuditEventEndpoints();
 
         return endpoints;
     }

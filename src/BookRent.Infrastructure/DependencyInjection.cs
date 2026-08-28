@@ -1,8 +1,11 @@
+using BookRent.Application.Abstractions.Auditing;
 using BookRent.Application.Abstractions.Caching;
 using BookRent.Application.Abstractions.Persistence;
+using BookRent.Infrastructure.Auditing;
 using BookRent.Infrastructure.Caching;
 using BookRent.Infrastructure.Health;
 using BookRent.Infrastructure.Persistence;
+using BookRent.Infrastructure.Persistence.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.StackExchangeRedis;
 using Microsoft.Extensions.Configuration;
@@ -47,6 +50,8 @@ public static class DependencyInjection
                 }));
 
         services.AddScoped<IUnitOfWork, UnitOfWork>();
+        services.AddScoped<IBookRepository, BookRepository>();
+        services.AddScoped<IAuditTrail, AuditTrail>();
 
         return services;
     }
