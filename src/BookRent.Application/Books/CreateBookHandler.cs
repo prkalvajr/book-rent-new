@@ -1,5 +1,4 @@
 using BookRent.Application.Abstractions.Auditing;
-using BookRent.Application.Abstractions.Caching;
 using BookRent.Application.Abstractions.Persistence;
 using BookRent.Domain.Auditing;
 using BookRent.Domain.Books;
@@ -12,7 +11,6 @@ public sealed class CreateBookHandler(
     IBookRepository books,
     IUnitOfWork unitOfWork,
     IAuditTrail auditTrail,
-    ICacheStore cache,
     TimeProvider timeProvider)
 {
     public async Task<BookResponse> HandleAsync(CreateBookRequest request, CancellationToken cancellationToken = default)
@@ -54,10 +52,6 @@ public sealed class CreateBookHandler(
                 return book;
             },
             cancellationToken).ConfigureAwait(false);
-
-        // Invalidacao depois do commit: dentro da transacao, um rollback deixaria no
-        // Redis um valor que nunca existiu.
-        await cache.RemoveAsync(CacheKeys.Book(created.Id), cancellationToken).ConfigureAwait(false);
 
         return created.ToResponse();
     }

@@ -63,7 +63,18 @@ public sealed class LoanLifecycleHandler(
 
                 // So depois da transicao confirmada o exemplar volta a circulacao —
                 // do contrario uma segunda chamada incrementaria a disponibilidade de novo.
-                await books.ReleaseCopyAsync(loan.BookId, ct).ConfigureAwait(false);
+                var liberado = await books.ReleaseCopyAsync(loan.BookId, ct).ConfigureAwait(false);
+
+                if (liberado == 0)
+                {
+                    // So ocorre com a invariante total - available = ativos ja quebrada.
+                    // Engolir isso commitaria um emprestimo encerrado sem devolver o
+                    // exemplar ao acervo; abortar preserva a coerencia e torna o problema
+                    // visivel em vez de silencioso.
+                    throw new InvalidOperationException(
+                        $"Invariante de disponibilidade violada no livro {loan.BookId}: " +
+                        "nao ha exemplar emprestado para devolver.");
+                }
 
                 auditTrail.Record(
                     AuditEntityTypes.Loan,

@@ -12,9 +12,6 @@ namespace BookRent.Application.Books;
 /// </summary>
 public sealed class GetBookHandler(IBookRepository books, ICacheStore cache)
 {
-    /// <summary>TTL curto: e tambem o tempo maximo de divergencia se uma invalidacao se perder.</summary>
-    public static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(60);
-
     public async Task<BookResponse> GetAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var key = CacheKeys.Book(id);
@@ -31,7 +28,9 @@ public sealed class GetBookHandler(IBookRepository books, ICacheStore cache)
 
         var response = book.ToResponse();
 
-        await cache.SetAsync(key, response, CacheTtl, cancellationToken).ConfigureAwait(false);
+        // Sem TTL explicito: quem manda e Cache:DefaultTtl da configuracao. Um TTL fixo
+        // no codigo tornaria a variavel documentada no README uma configuracao morta.
+        await cache.SetAsync(key, response, ttl: null, cancellationToken).ConfigureAwait(false);
 
         return response;
     }

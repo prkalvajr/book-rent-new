@@ -179,7 +179,7 @@ placeholders e os do Compose valem só para a stack local descartável.
 | `ConnectionStrings__Postgres` | — | **Obrigatória.** Connection string do PostgreSQL |
 | `ConnectionStrings__Redis` | — | **Obrigatória.** Endpoint do Redis |
 | `Database__MigrateOnStartup` | `false` | Aplica migrations pendentes ao subir |
-| `Cache__DefaultTtl` | `00:05:00` | TTL padrão do cache |
+| `Cache__DefaultTtl` | `00:01:00` | TTL do snapshot de livro no Redis |
 | `Cache__InstanceName` | `bookrent:` | Prefixo das chaves no Redis |
 | `Loans__DefaultLoanPeriodDays` | `14` | Prazo de devolução |
 | `Loans__IdempotencyRetention` | `1.00:00:00` | Por quanto tempo uma `Idempotency-Key` vale para replay. Formato `TimeSpan`: use `d.hh:mm:ss` — `"24:00:00"` seria lido como **24 dias**, não 24 horas |
