@@ -26,6 +26,21 @@ internal sealed class UnitOfWork(BookRentDbContext dbContext) : IUnitOfWork
             cancellationToken,
             async (ct) =>
             {
+                // Cada tentativa comeca do zero. O ExecutionStrategy reexecuta este
+                // delegate no MESMO DbContext, e o rollback desfaz a transacao no banco
+                // mas NAO limpa o ChangeTracker: entidades adicionadas na tentativa
+                // anterior continuariam em estado Added e seriam gravadas junto com as
+                // da nova tentativa.
+                //
+                // Sem isto, um erro transitorio no SaveChanges — 53300
+                // too_many_connections, por exemplo, que e justamente a falha esperada
+                // sob contencao (secao 9.12) — produziria DOIS emprestimos com UM unico
+                // decremento de disponibilidade. A CHECK constraint nao pega esse caso:
+                // ela limita available_copies entre 0 e total_copies, e o numero
+                // continuaria dentro da faixa enquanto a invariante
+                // "total - available = emprestimos ativos" ja estaria quebrada.
+                dbContext.ChangeTracker.Clear();
+
                 await using var transaction = await dbContext.Database
                     .BeginTransactionAsync(IsolationLevel.ReadCommitted, ct)
                     .ConfigureAwait(false);

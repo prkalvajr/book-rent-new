@@ -16,7 +16,7 @@ namespace BookRent.IntegrationTests.Fixtures;
 /// </summary>
 internal static class ApiClientExtensions
 {
-    private static int _sequence;
+    internal static int _sequence;
 
     /// <summary>Gera um ISBN-13 valido e unico dentro da execucao da suite.</summary>
     public static string NovoIsbn()
