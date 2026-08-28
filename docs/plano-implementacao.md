@@ -732,7 +732,13 @@ teste intermitente — aí, respawn do schema entre classes.
 
 Um commit por etapa, com a suíte verde ao fim de cada uma.
 
-**Concluídas:** 1 (domínio), 2 (persistência e migration), 3 (catálogo), 4 (usuários).
+**Concluídas:** 1 a 6. As etapas 5 e 6 saíram num commit só — os testes que provam a
+5 (último exemplar, idempotência) afirmam sobre o estado final via
+`GET /books/{id}/availability`, que é entrega da 6; separá-las exigiria commitar código
+sem verificação do resultado.
+
+**Restam:** 7 (parcialmente feita — os quatro cenários obrigatórios já existem e nenhum
+teste está `Skip`; falta o cenário 5, do conflito otimista concorrente) e 8 (README).
 
 | # | Etapa | Entrega |
 | --- | --- | --- |
