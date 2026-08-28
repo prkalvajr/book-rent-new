@@ -40,6 +40,7 @@ public static class DependencyInjection
         services.AddScoped<GetUserLoansHandler>();
 
         services.AddScoped<CreateLoanHandler>();
+        services.AddScoped<GetLoanHandler>();
         services.AddScoped<LoanLifecycleHandler>();
         services.AddScoped<GetBookAvailabilityHandler>();
         services.AddScoped<GetBookHistoryHandler>();

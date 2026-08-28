@@ -29,6 +29,11 @@ internal static class LoanEndpoints
             .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
 
+        loans.MapGet("/{id:guid}", GetAsync)
+            .WithSummary("Consulta um emprestimo, em qualquer estado")
+            .Produces<LoanResponse>()
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         loans.MapPost("/{id:guid}/return", ReturnAsync)
             .WithSummary("Devolve um emprestimo; o registro permanece no historico")
             .Produces<LoanResponse>()
@@ -79,6 +84,16 @@ internal static class LoanEndpoints
         httpContext.Response.Headers[ReplayedHeader] = result.Replayed ? "true" : "false";
 
         return TypedResults.Created($"/loans/{result.Loan.Id}", result.Loan);
+    }
+
+    private static async Task<Ok<LoanResponse>> GetAsync(
+        Guid id,
+        GetLoanHandler handler,
+        CancellationToken cancellationToken)
+    {
+        var loan = await handler.GetAsync(id, cancellationToken).ConfigureAwait(false);
+
+        return TypedResults.Ok(loan);
     }
 
     private static async Task<Ok<LoanResponse>> ReturnAsync(

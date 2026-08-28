@@ -122,6 +122,61 @@ public class ConcurrencyTests(BookRentApiFactory factory)
         disponibilidade!.AvailableCopies.ShouldBe(4, "a disponibilidade nao pode ser decrementada duas vezes");
     }
 
+    // Regressao: POST /loans devolvia Location apontando para uma rota que nao existia,
+    // e segui-lo dava 404. Mesmo problema ja corrigido em /users.
+    [Fact]
+    public async Task O_location_devolvido_ao_criar_emprestimo_deve_responder()
+    {
+        using var client = factory.CreateClient();
+        var leitor = await client.CriarLeitorAsync(Ct);
+        var livro = await client.CriarLivroAsync(exemplares: 2, cancellationToken: Ct);
+
+        using var criado = await client.TentarEmprestarAsync(
+            livro.Id, leitor.Id, Guid.CreateVersion7().ToString(), Ct);
+
+        criado.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var esperado = await criado.Content.ReadFromJsonAsync<LoanResponse>(Ct);
+
+        using var seguido = await client.GetAsync(criado.Headers.Location, Ct);
+
+        seguido.StatusCode.ShouldBe(HttpStatusCode.OK, "o Location precisa apontar para algo que responde");
+
+        var lido = await seguido.Content.ReadFromJsonAsync<LoanResponse>(Ct);
+        lido!.Id.ShouldBe(esperado!.Id);
+        lido.Status.ShouldBe(nameof(LoanStatus.Active));
+    }
+
+    [Fact]
+    public async Task Emprestimo_devolvido_continua_consultavel_por_id()
+    {
+        using var client = factory.CreateClient();
+        var leitor = await client.CriarLeitorAsync(Ct);
+        var livro = await client.CriarLivroAsync(exemplares: 2, cancellationToken: Ct);
+        var emprestimo = await client.EmprestarAsync(livro.Id, leitor.Id, Ct);
+
+        using var devolucao = await client.PostAsync(
+            new Uri($"/loans/{emprestimo.Id}/return", UriKind.Relative), null, Ct);
+        devolucao.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var lido = await client.GetFromJsonAsync<LoanResponse>(
+            new Uri($"/loans/{emprestimo.Id}", UriKind.Relative), Ct);
+
+        lido!.Status.ShouldBe(nameof(LoanStatus.Returned), "o registro nunca e apagado");
+        lido.ReturnedAt.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task Emprestimo_inexistente_deve_responder_404_com_codigo()
+    {
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync(
+            new Uri($"/loans/{Guid.CreateVersion7()}", UriKind.Relative), Ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await response.CodigoDoProblemaAsync(Ct)).ShouldBe(LoanErrors.NotFound);
+    }
+
     [Fact]
     public async Task Mesma_chave_com_corpo_diferente_deve_ser_recusada_com_422()
     {
