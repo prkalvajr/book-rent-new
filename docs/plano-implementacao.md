@@ -605,13 +605,31 @@ fazer um item aparecer duas vezes entre páginas. Vai como limitação conhecida
 
 ### 6.5 Conflito de edição no `PATCH`: tradução e política de retry
 
-> **Escolha:** um `IExceptionHandler` dedicado traduz `DbUpdateConcurrencyException` em
-> **409** `book.concurrent_modification`, com os valores atuais do banco no corpo do
-> Problem Details. **Sem retry automático** — o conflito volta para o cliente decidir.
+> **Escolha:** conflito de edição responde **409** `book.concurrent_modification`,
+> **sem retry automático** — volta para o cliente decidir. Como o conflito é detectado
+> muda conforme o caminho, e a razão está abaixo.
 
-Hoje só `DomainException` é tratada (`DomainExceptionHandler`); este é um segundo handler
-registrado na mesma pipeline. Ele lê `ex.Entries` e usa `GetDatabaseValuesAsync()` para
-devolver o estado corrente, de modo que o cliente possa comparar sem uma nova requisição.
+**Correção feita durante a implementação.** Este plano previa detectar o conflito do
+`PATCH` por `DbUpdateConcurrencyException` do EF Core. Isso **não funciona** aqui, e o
+motivo é o mesmo que justificou a §9.7: o change tracker só sabe escrever valores
+**absolutos**, e `available_copies` precisa de escrita **relativa**. Um empréstimo
+concorrente muda a disponibilidade sem tocar em `version` (por desenho), então um
+`SaveChanges` gravaria `available_copies = <lido> + delta` e **perderia esse empréstimo** —
+exatamente o *lost update* que a §2.4 descreve, reaparecendo pelo outro lado.
+
+Como ficou, e por quê:
+
+| Caminho | Escreve | Detecção do conflito |
+| --- | --- | --- |
+| `PATCH /books/{id}` | contador (relativo) + descritivos | `UPDATE` condicional com `version` no `WHERE`; **contagem de linhas**, não exceção |
+| `DELETE /books/{id}` | só descritivos (`is_active`) | change tracker + token → `DbUpdateConcurrencyException` |
+
+É a regra "absoluto vs. relativo" da §2.4 aplicada de forma consistente: o `DELETE` não
+encosta no contador, então a escrita absoluta é segura e o mecanismo do EF Core basta.
+
+O `PersistenceExceptionHandler` existe e cobre o caminho do `DELETE`, mais violação de
+índice único (`23505`) — a checagem prévia de ISBN é amigável, mas quem garante é o
+índice, e duas criações simultâneas com o mesmo ISBN passam pela checagem e colidem nele.
 
 **Por que não fazer retry automático:** repetir sozinho significaria **mesclar duas edições
 humanas**, e mesclagem automática perde intenção. Se um bibliotecário corrigiu o autor e
@@ -713,6 +731,8 @@ teste intermitente — aí, respawn do schema entre classes.
 ## 8. Ordem de execução
 
 Um commit por etapa, com a suíte verde ao fim de cada uma.
+
+**Concluídas:** 1 (domínio), 2 (persistência e migration), 3 (catálogo), 4 (usuários).
 
 | # | Etapa | Entrega |
 | --- | --- | --- |
@@ -997,7 +1017,7 @@ manteriam 110 conexões abertas **em repouso**, estourando o limite sem nenhum t
 | 4 | Auditoria | Chamada explícita no caso de uso | Interceptor do `SaveChanges` | Precisar cobrir 100% das escritas automaticamente |
 | 5 | Cache | Cache-aside, **uma chave** com o snapshot do livro servindo dois endpoints; `DEL` após o commit | Duas chaves por volatilidade; `SET`/`DECR`; write-through; `HybridCache`; cachear a listagem | Disponibilidade ganhar origem/custo próprios (`BookCopy`, §1.1) ou o livro ganhar *joins* |
 | 6.1 | Status HTTP | 409 conflito / 422 semântica | 400 para tudo | — |
-| 6.5 | Conflito no `PATCH` | 409 sem retry automático | Retry/mesclagem no servidor; `ETag` + `If-Match` | Cliente precisar de edição condicional canônica |
+| 6.5 | Conflito no `PATCH` | 409 sem retry automático, detectado por contagem de linhas | `DbUpdateConcurrencyException` (perderia empréstimo concorrente); retry/mesclagem no servidor; `ETag` + `If-Match` | Cliente precisar de edição condicional canônica |
 | 6.2 | `DELETE /books` | Desativa, 409 se ativo | `POST /deactivate` + 405 | Contrato pudesse divergir do sugerido |
 | 6.4 | Paginação | Offset | Cursor | Volume crescer |
 | 7.2 | Containers de teste | Compartilhados na coleção | Um par por classe | Interferência entre classes gerar teste intermitente |
