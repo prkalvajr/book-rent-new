@@ -1,4 +1,7 @@
-# BookRent — API de Empréstimos Concorrentes e Auditáveis
+| Trilha de auditoria append-only | `CatalogEndpointsTests` |
+| Auditoria dos três eventos de empréstimo | `ConcurrencyTests` |
+| Degradação com o Redis fora (leitura, empréstimo e health) | `DegradacaoTests` |
+| Retry transitório não duplicando registros | `UnitOfWorkRetryTests` |# BookRent — API de Empréstimos Concorrentes e Auditáveis
 
 API REST em **.NET 10 LTS** para o catálogo e os empréstimos de uma biblioteca, projetada
 para rodar em **múltiplas réplicas** sem perder integridade: duas requisições simultâneas
@@ -111,7 +114,7 @@ dotnet test tests/BookRent.UnitTests            # rápidos, sem I/O
 dotnet test tests/BookRent.IntegrationTests     # exige Docker
 ```
 
-**117 testes: 63 unitários e 54 de integração.** Os de integração **não** usam banco
+**121 testes: 63 unitários e 58 de integração.** Os de integração **não** usam banco
 in-memory — sobem PostgreSQL 17 e Redis 8 reais via Testcontainers, porque os cenários de
 concorrência dependem do comportamento específico do PostgreSQL. Um teste verde sobre uma
 semântica que não existe em produção é o pior tipo de teste verde.

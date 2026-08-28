@@ -6,8 +6,6 @@ namespace BookRent.Application.Abstractions.Persistence;
 /// </summary>
 public interface IUnitOfWork
 {
-    Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
-
     /// <summary>
     /// Executa <paramref name="operation"/> dentro de uma transacao, com retry
     /// para falhas transitorias e conflitos de concorrencia otimista.

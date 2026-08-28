@@ -73,15 +73,9 @@ public sealed class IdempotencyRecord
         return new IdempotencyRecord(key, endpoint, requestHash, now, now + retention);
     }
 
-    /// <summary>Guarda a resposta produzida, para que um retry receba exatamente a mesma.</summary>
-    public void Complete(int responseStatus, string responseBody, Guid? loanId)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(responseBody);
-
-        ResponseStatus = responseStatus;
-        ResponseBody = responseBody;
-        LoanId = loanId;
-    }
+    // A resposta produzida e gravada por IIdempotencyStore.CompleteAsync, com UPDATE
+    // direto: o registro foi inserido por SQL explicito (ON CONFLICT DO NOTHING) e nunca
+    // esta no change tracker, entao um metodo de dominio aqui nao teria como persistir.
 
     /// <summary>Mesma chave com corpo diferente e erro do cliente, nao replay.</summary>
     public bool MatchesRequest(string requestHash) =>

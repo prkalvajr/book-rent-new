@@ -7,7 +7,9 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-bookrent}
       POSTGRES_USER: ${POSTGRES_USER:-bookrent}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bookrent}
-      # Acelera o fsync em ambiente de desenvolvimento; NUNCA usar em producao.
+      # Checksums de pagina detectam corrupcao silenciosa de I/O. Custa poucos por
+      # cento de CPU e so pode ser ligado na inicializacao do cluster — recomendado
+      # tambem em producao.
       POSTGRES_INITDB_ARGS: "--data-checksums"
     ports:
       - "${POSTGRES_PORT:-5432}:5432"

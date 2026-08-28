@@ -336,7 +336,8 @@ public class CatalogEndpointsTests(BookRentApiFactory factory)
         var redis = factory.Services.GetRequiredService<IConnectionMultiplexer>().GetDatabase();
         var chave = $"bookrent:{CacheKeys.Book(criado.Id)}";  // InstanceName + chave logica
 
-        (await redis.KeyExistsAsync(chave)).ShouldBeFalse("a criacao invalida, nao popula");
+        // Nada de assertion sobre a chave ainda nao existir: o id e um UUIDv7 recem
+        // gerado, entao ela nunca poderia existir e a verificacao seria vazia.
 
         await client.GetFromJsonAsync<BookResponse>(new Uri($"/books/{criado.Id}", UriKind.Relative), Ct);
 
