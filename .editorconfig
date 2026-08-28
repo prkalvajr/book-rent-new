@@ -43,3 +43,12 @@ dotnet_diagnostic.CA1707.severity = none
 dotnet_diagnostic.CA2007.severity = none
 dotnet_diagnostic.CA1034.severity = none
 dotnet_diagnostic.CA1861.severity = none
+
+[**/Persistence/Migrations/*.cs]
+# Codigo gerado por "dotnet ef migrations add" e regerado a cada mudanca de modelo:
+# editar a mao seria perdido. Marcado como gerado para que os analisadores o ignorem,
+# em vez de relaxar as regras no projeto inteiro.
+generated_code = true
+dotnet_diagnostic.IDE0161.severity = none
+dotnet_diagnostic.CA1825.severity = none
+dotnet_diagnostic.CA1861.severity = none
