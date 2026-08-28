@@ -1,4 +1,5 @@
 using BookRent.Application.Books;
+using BookRent.Application.Users;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace BookRent.Application;
@@ -25,6 +26,10 @@ public static class DependencyInjection
         services.AddScoped<SearchBooksHandler>();
         services.AddScoped<UpdateBookHandler>();
         services.AddScoped<DeactivateBookHandler>();
+
+        services.AddScoped<RegisterUserHandler>();
+        services.AddScoped<GetUserHandler>();
+        services.AddScoped<GetUserLoansHandler>();
 
         return services;
     }

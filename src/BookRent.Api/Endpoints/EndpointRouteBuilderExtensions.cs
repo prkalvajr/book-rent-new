@@ -13,7 +13,7 @@ internal static class EndpointRouteBuilderExtensions
 
         endpoints.MapBookEndpoints();
 
-        // endpoints.MapUserEndpoints();
+        endpoints.MapUserEndpoints();
         // endpoints.MapLoanEndpoints();
         // endpoints.MapAuditEventEndpoints();
 
