@@ -1,5 +1,8 @@
+using BookRent.Application.Auditing;
 using BookRent.Application.Books;
+using BookRent.Application.Loans;
 using BookRent.Application.Users;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace BookRent.Application;
@@ -21,6 +24,11 @@ public static class DependencyInjection
     {
         ArgumentNullException.ThrowIfNull(services);
 
+        services.AddOptions<LoanOptions>()
+            .Configure<IConfiguration>((options, configuration) =>
+                configuration.GetSection(LoanOptions.SectionName).Bind(options))
+            .ValidateOnStart();
+
         services.AddScoped<CreateBookHandler>();
         services.AddScoped<GetBookHandler>();
         services.AddScoped<SearchBooksHandler>();
@@ -30,6 +38,12 @@ public static class DependencyInjection
         services.AddScoped<RegisterUserHandler>();
         services.AddScoped<GetUserHandler>();
         services.AddScoped<GetUserLoansHandler>();
+
+        services.AddScoped<CreateLoanHandler>();
+        services.AddScoped<LoanLifecycleHandler>();
+        services.AddScoped<GetBookAvailabilityHandler>();
+        services.AddScoped<GetBookHistoryHandler>();
+        services.AddScoped<SearchAuditEventsHandler>();
 
         return services;
     }

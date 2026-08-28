@@ -1,12 +1,18 @@
 using BookRent.Application.Abstractions.Persistence;
 using BookRent.Application.Books;
 using BookRent.Application.Loans;
+using BookRent.Domain.Loans;
 using Microsoft.EntityFrameworkCore;
 
 namespace BookRent.Infrastructure.Persistence.Repositories;
 
 internal sealed class LoanRepository(BookRentDbContext dbContext) : ILoanRepository
 {
+    public void Add(Loan loan) => dbContext.Loans.Add(loan);
+
+    public Task<Loan?> FindReadOnlyAsync(Guid id, CancellationToken cancellationToken = default) =>
+        dbContext.Loans.AsNoTracking().FirstOrDefaultAsync(loan => loan.Id == id, cancellationToken);
+
     public async Task<PagedResult<LoanResponse>> SearchAsync(
         SearchLoansQuery query,
         CancellationToken cancellationToken = default)
@@ -52,5 +58,25 @@ internal sealed class LoanRepository(BookRentDbContext dbContext) : ILoanReposit
             .ConfigureAwait(false);
 
         return new PagedResult<LoanResponse>(items, query.Page, query.PageSize, total);
+    }
+
+    /// <inheritdoc />
+    public Task<int> TryTransitionFromActiveAsync(
+        Guid loanId,
+        LoanStatus newStatus,
+        DateTimeOffset occurredAt,
+        CancellationToken cancellationToken = default)
+    {
+        var returnedAt = newStatus == LoanStatus.Returned ? occurredAt : (DateTimeOffset?)null;
+        var cancelledAt = newStatus == LoanStatus.Cancelled ? occurredAt : (DateTimeOffset?)null;
+
+        return dbContext.Loans
+            .Where(loan => loan.Id == loanId && loan.Status == LoanStatus.Active)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(loan => loan.Status, newStatus)
+                    .SetProperty(loan => loan.ReturnedAt, returnedAt)
+                    .SetProperty(loan => loan.CancelledAt, cancelledAt),
+                cancellationToken);
     }
 }

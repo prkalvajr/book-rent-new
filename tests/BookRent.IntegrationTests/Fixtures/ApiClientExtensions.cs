@@ -1,6 +1,8 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using BookRent.Application.Books;
+using BookRent.Application.Loans;
+using BookRent.Application.Users;
 using Shouldly;
 
 namespace BookRent.IntegrationTests.Fixtures;
@@ -73,6 +75,60 @@ internal static class ApiClientExtensions
         var problema = await response.Content.ReadFromJsonAsync<ProblemaComCodigo>(cancellationToken);
 
         return problema?.Code;
+    }
+
+    public static async Task<UserResponse> CriarLeitorAsync(
+        this HttpClient client,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+
+        var request = new RegisterUserRequest("Leitor de Teste", $"leitor.{Guid.CreateVersion7():N}@exemplo.com");
+
+        using var response = await client.PostAsJsonAsync(
+            new Uri("/users", UriKind.Relative),
+            request,
+            cancellationToken);
+
+        var corpo = await response.Content.ReadAsStringAsync(cancellationToken);
+        response.StatusCode.ShouldBe(System.Net.HttpStatusCode.Created, corpo);
+
+        return (await response.Content.ReadFromJsonAsync<UserResponse>(cancellationToken))!;
+    }
+
+    /// <summary>Dispara POST /loans sem afirmar nada — quem chama inspeciona a resposta.</summary>
+    public static Task<HttpResponseMessage> TentarEmprestarAsync(
+        this HttpClient client,
+        Guid bookId,
+        Guid userId,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+
+        var request = new HttpRequestMessage(HttpMethod.Post, new Uri("/loans", UriKind.Relative))
+        {
+            Content = JsonContent.Create(new CreateLoanRequest(bookId, userId)),
+        };
+
+        request.Headers.Add("Idempotency-Key", idempotencyKey);
+
+        return client.SendAsync(request, cancellationToken);
+    }
+
+    public static async Task<LoanResponse> EmprestarAsync(
+        this HttpClient client,
+        Guid bookId,
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await client.TentarEmprestarAsync(
+            bookId, userId, Guid.CreateVersion7().ToString(), cancellationToken);
+
+        var corpo = await response.Content.ReadAsStringAsync(cancellationToken);
+        response.StatusCode.ShouldBe(System.Net.HttpStatusCode.Created, corpo);
+
+        return (await response.Content.ReadFromJsonAsync<LoanResponse>(cancellationToken))!;
     }
 
     private sealed record ProblemaComCodigo(string? Code, string? CorrelationId, string? Detail);

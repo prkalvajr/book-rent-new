@@ -111,4 +111,20 @@ internal sealed class BookRepository(BookRentDbContext dbContext) : IBookReposit
                     .SetProperty(candidate => candidate.UpdatedAt, book.UpdatedAt),
                 cancellationToken);
     }
+
+    /// <inheritdoc />
+    public Task<int> TryReserveCopyAsync(Guid bookId, CancellationToken cancellationToken = default) =>
+        dbContext.Books
+            .Where(book => book.Id == bookId && book.IsActive && book.AvailableCopies > 0)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(book => book.AvailableCopies, book => book.AvailableCopies - 1),
+                cancellationToken);
+
+    /// <inheritdoc />
+    public Task<int> ReleaseCopyAsync(Guid bookId, CancellationToken cancellationToken = default) =>
+        dbContext.Books
+            .Where(book => book.Id == bookId && book.AvailableCopies < book.TotalCopies)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(book => book.AvailableCopies, book => book.AvailableCopies + 1),
+                cancellationToken);
 }

@@ -42,4 +42,23 @@ public interface IBookRepository
         int expectedVersion,
         int availabilityDelta,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reserva um exemplar com UM comando condicional atomico:
+    /// <c>UPDATE ... SET available_copies = available_copies - 1
+    /// WHERE id = @id AND is_active AND available_copies &gt; 0</c>.
+    ///
+    /// Devolve 1 quando reservou e 0 quando nao havia exemplar. Nao existe janela entre
+    /// ler e decidir: o comando avalia o predicado e escreve no mesmo passo. Sob
+    /// READ COMMITTED, a segunda transacao espera o row lock e o PostgreSQL reavalia o
+    /// WHERE contra a versao nova da linha — com um exemplar so, ela encontra 0 e afeta
+    /// zero linhas. Ver secao 2.1 do plano.
+    ///
+    /// NAO incrementa <c>version</c>: emprestimo nao pode invalidar uma edicao de
+    /// catalogo em andamento (secao 9.7).
+    /// </summary>
+    Task<int> TryReserveCopyAsync(Guid bookId, CancellationToken cancellationToken = default);
+
+    /// <summary>Devolve um exemplar a circulacao, sem ultrapassar o acervo.</summary>
+    Task<int> ReleaseCopyAsync(Guid bookId, CancellationToken cancellationToken = default);
 }

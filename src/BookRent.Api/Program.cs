@@ -22,6 +22,7 @@ builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 
 // Correlacao: uma instancia por requisicao, exposta ao dominio pela interface.
+builder.Services.AddScoped<LoanMetricsFilter>();
 builder.Services.AddScoped<CorrelationContext>();
 builder.Services.AddScoped<ICorrelationContext>(sp => sp.GetRequiredService<CorrelationContext>());
 

@@ -14,8 +14,8 @@ internal static class EndpointRouteBuilderExtensions
         endpoints.MapBookEndpoints();
 
         endpoints.MapUserEndpoints();
-        // endpoints.MapLoanEndpoints();
-        // endpoints.MapAuditEventEndpoints();
+        // Emprestimos, disponibilidade, historico e trilha de auditoria.
+        endpoints.MapLoanEndpoints();
 
         return endpoints;
     }
