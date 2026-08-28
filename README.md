@@ -111,7 +111,7 @@ dotnet test tests/BookRent.UnitTests            # rápidos, sem I/O
 dotnet test tests/BookRent.IntegrationTests     # exige Docker
 ```
 
-**103 testes: 59 unitários e 44 de integração.** Os de integração **não** usam banco
+**117 testes: 63 unitários e 54 de integração.** Os de integração **não** usam banco
 in-memory — sobem PostgreSQL 17 e Redis 8 reais via Testcontainers, porque os cenários de
 concorrência dependem do comportamento específico do PostgreSQL. Um teste verde sobre uma
 semântica que não existe em produção é o pior tipo de teste verde.
@@ -205,7 +205,7 @@ conexões contra as ~97 úteis de um `max_connections=100`. Está em **8**
 | `POST` | `/books` | 201 + `Location` |
 | `GET` | `/books?q=&page=&pageSize=&includeInactive=` | Busca por título ou autor |
 | `GET` | `/books/{id}` | Cacheado |
-| `PATCH` | `/books/{id}` | Concorrência otimista via `expectedVersion` |
+| `PATCH` | `/books/{id}` | Concorrência otimista via `expectedVersion` — **opcional**, ver abaixo |
 | `DELETE` | `/books/{id}` | **Desativa**, nunca apaga |
 | `POST` | `/users` | 201 + `Location` |
 | `GET` | `/users/{id}` | |
@@ -314,6 +314,15 @@ indevida, mesmo que um empréstimo tenha entrado no meio.
 **Sem retry automático no `PATCH`:** repetir sozinho significaria mesclar duas edições
 humanas, e mesclagem automática perde intenção. O conflito volta para quem edita decidir.
 
+**Limitação assumida: `expectedVersion` é opcional.** Omitido, o `UPDATE` é guardado pela
+versão lida na própria transação — o que ainda impede escrita sobre estado que mudou
+*durante* a requisição, mas **não** impede sobrescrever a edição de outra pessoa feita
+antes dela. Na prática, cliente que não envia o campo aceita *last-write-wins*. Mantido
+opcional porque `PATCH` parcial sem pré-condição é um uso legítimo (corrigir um typo sem
+ter lido o registro antes); torná-lo obrigatório seria a escolha certa numa API com
+edição concorrente frequente, e é o que o `If-Match` da evolução proposta resolveria de
+forma canônica.
+
 ---
 
 ## Idempotência
@@ -414,8 +423,11 @@ segurança**, não só política de frescor: se o processo morrer entre o `COMMI
 Sem cabeçalho de correlação, o middleware usa o `TraceId` do span corrente, mantendo log e
 trace alinhados, e devolve o valor na resposta.
 
-**Traces** — ASP.NET Core, `HttpClient` e Npgsql, mais a `ActivitySource` própria. Em
-http://localhost:16686 (Jaeger).
+**Traces** — instrumentação automática de ASP.NET Core, `HttpClient` e Npgsql. Em
+http://localhost:16686 (Jaeger). A `ActivitySource` própria (`BookRent.Api`) está
+registrada mas ainda não emite spans manuais: a instrumentação automática já cobre
+requisição e SQL, e um span por caso de uso só agregaria valor com hierarquia mais
+profunda que a atual.
 
 **Métricas de negócio**, em http://localhost:9090 (Prometheus):
 

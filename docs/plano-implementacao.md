@@ -441,6 +441,12 @@ Um só caminho de leitura, compartilhado: tenta o Redis; no *miss*, um `SELECT` 
 livro, grava o snapshot e devolve. Os dois endpoints não conseguem divergir, porque leem
 literalmente os mesmos bytes.
 
+O prefixo `bookrent:` vem do `InstanceName` do `IDistributedCache` (`Cache:InstanceName`),
+aplicado pelo adaptador — `CacheKeys` devolve só a parte lógica (`book:{id}`). Um prefixo
+também em `CacheKeys` produziria `bookrent:bookrent:book:{id}`. O TTL vem de
+`Cache:DefaultTtl`, e não de constante no código, para que a variável documentada tenha
+efeito de verdade.
+
 **Por que uma chave com tudo, e não uma chave só com a disponibilidade:** o *miss* faz o
 mesmo `SELECT` nos dois desenhos e recebe a linha inteira de qualquer forma. Cachear só os
 dois números significaria descartar título, autor e ISBN que já vieram, para buscá-los de
@@ -579,8 +585,18 @@ que hoje devolve sempre 409 e será estendido para mapear famílias de código.
 | Apagar de fato quando não há histórico | "Delete" faz o que promete no caso simples | Dois comportamentos para o mesmo verbo, dependendo de estado invisível ao cliente. Pior de prever do que uma regra única |
 
 **Custo assumido:** o *soft delete* contamina toda consulta com o filtro `IsActive`.
-Esquecer o filtro num lugar expõe livro desativado. Mitigação: *global query filter* do EF
-Core, com `IgnoreQueryFilters()` explícito onde o histórico precisar enxergar inativos.
+Esquecer o filtro num lugar expõe livro desativado.
+
+**Como ficou, e a diferença em relação ao que este plano previa:** a mitigação prevista era
+um *global query filter* do EF Core com `IgnoreQueryFilters()` onde o histórico precisasse
+enxergar inativos. Não foi implementada — o filtro é um `Where(b => b.IsActive)` explícito,
+em um único ponto (`BookRepository.SearchAsync`), porque é a **única** consulta que deve
+escondê-los: leitura por id, disponibilidade e histórico mostram livro desativado de
+propósito. Um filtro global obrigaria `IgnoreQueryFilters()` em quase todo lugar,
+invertendo o padrão e o risco: em vez de esquecer de esconder, esqueceria-se de revelar,
+e o histórico sumiria em silêncio — o defeito mais grave dos dois. **Custo real assumido:**
+se surgir uma segunda consulta que deva esconder inativos, o filtro terá de ser repetido à
+mão.
 
 `PATCH` reduzindo `TotalCopies` abaixo dos empréstimos ativos → 422. O ajuste move
 `AvailableCopies` pelo mesmo delta, no mesmo commit.
@@ -674,7 +690,7 @@ leitura extra apenas no caminho de erro.
 | **Testcontainers** (PostgreSQL e Redis reais) | Banco in-memory / SQLite | O desafio exige integração com PostgreSQL real, e os cenários de concorrência dependem do comportamento **específico** do PostgreSQL (`EvalPlanQual`, locks). In-memory testaria uma semântica que não existe em produção — o pior tipo de teste verde |
 | | PostgreSQL compartilhado no CI | Mais rápido, mas estado compartilhado entre execuções e dependência de infraestrutura externa para rodar `dotnet test` na máquina de qualquer um |
 | **Shouldly** | FluentAssertions | FluentAssertions passou a exigir licença comercial na v8; Shouldly é Apache-2.0. Decisão de licenciamento, não de gosto |
-| **NSubstitute** | Moq | Sintaxe mais limpa e sem o episódio do SponsorLink, que introduziu coleta de dados numa versão menor |
+| ~~**NSubstitute**~~ | Moq | **Dependência removida.** A escolha se justificaria (sintaxe mais limpa, sem o episódio do SponsorLink), mas nenhum teste chegou a usar dublê: o domínio recebe o instante como parâmetro e os testes de integração usam PostgreSQL e Redis reais. Defender uma decisão sobre um pacote não utilizado seria pior que não tê-la |
 | **xUnit v3** | NUnit / MSTest | Suporte nativo a `CancellationToken` por teste (`TestContext.Current`) e ao modelo de projeto executável; já é o padrão do repositório |
 
 ### 7.2 Compartilhar containers entre classes
@@ -714,8 +730,15 @@ teste intermitente — aí, respawn do schema entre classes.
    `users/{id}/loans` seguem mostrando os empréstimos com o status final; `DELETE` desativa
    sem apagar; `audit-events` traz os eventos.
 4. **Cache coerente** — lê `availability` (popula), cria empréstimo, relê e o valor
-   reflete o decremento; e a leitura continua funcionando com o Redis derrubado
-   (degradação, não erro).
+   reflete o decremento; e a chave é populada na leitura e removida na escrita, verificado
+   direto no Redis — sem isso a suíte passaria até com o cache morto, já que
+   `RedisCacheStore` engole falhas por desenho.
+
+   > **Não implementado:** o teste que derruba o container do Redis para provar a
+   > degradação. A resiliência está no código (`RedisCacheStore` captura tudo que não seja
+   > cancelamento e cai para o banco) e é exercitada de fato — os testes de integração de
+   > catálogo e empréstimo rodam contra Redis real —, mas nenhum teste **remove** a
+   > dependência. É a lacuna conhecida da suíte.
 5. **Conflito otimista no `PATCH`** *(além do mínimo exigido)* — dois `PATCH` concorrentes
    no mesmo livro, ambos partindo da mesma versão: exatamente **1 × 200** e **1 × 409**
    com `code = book.concurrent_modification`, e o estado final igual ao da edição que
@@ -747,8 +770,9 @@ Um commit por etapa, com a suíte verde ao fim de cada uma.
 `GET /books/{id}/availability`, que é entrega da 6; separá-las exigiria commitar código
 sem verificação do resultado.
 
-**Restam:** 7 (parcialmente feita — os quatro cenários obrigatórios já existem e nenhum
-teste está `Skip`; falta o cenário 5, do conflito otimista concorrente) e 8 (README).
+**Concluídas: 1 a 8.** Depois delas, um code review independente encontrou seis defeitos
+— um de severidade alta (retry transitório duplicando registros) — todos corrigidos com
+teste de regressão. Ver o histórico do Git a partir de `73efe8d`.
 
 | # | Etapa | Entrega |
 | --- | --- | --- |
