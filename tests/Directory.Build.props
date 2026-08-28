@@ -1,0 +1,16 @@
+<Project>
+
+  <!--
+    Encadeia o Directory.Build.props da raiz: sem este import, o arquivo mais
+    proximo vence e as configuracoes globais (TFM, nullable, analisadores)
+    nao chegariam aos projetos de teste.
+  -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <ItemGroup Label="Usings compartilhados pelos projetos de teste">
+    <!-- Substitui o GlobalUsings.cs de cada projeto: o xunit.v3 nao registra
+         seu namespace como implicit using automaticamente. -->
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,31 @@
+# .NET
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+*.user
+*.userprefs
+*.suo
+*.binlog
+TestResults/
+coverage*.json
+coverage*.xml
+*.coverage
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.swp
+
+# Segredos e configuracao local — nunca versionar
+.env
+*.local.json
+appsettings.Local.json
+secrets.json
+deploy/k8s/secret.yaml
+
+# SO
+.DS_Store
+Thumbs.db

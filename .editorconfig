@@ -1,0 +1,45 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+indent_style = space
+indent_size = 4
+trim_trailing_whitespace = true
+
+[*.{json,yml,yaml,csproj,props,targets,slnx,xml}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.cs]
+# --- Estilo ---
+csharp_style_namespace_declarations = file_scoped:warning
+csharp_using_directive_placement = outside_namespace:warning
+csharp_style_var_for_built_in_types = false:silent
+csharp_style_var_when_type_is_apparent = true:silent
+csharp_prefer_braces = true:warning
+dotnet_sort_system_directives_first = true
+dotnet_style_require_accessibility_modifiers = for_non_interface_members:warning
+dotnet_style_readonly_field = true:warning
+
+# --- Analisadores ---
+# O build usa TreatWarningsAsErrors. As regras abaixo sao ajustadas
+# deliberadamente; as demais permanecem como erro.
+
+# CA1848 (LoggerMessage delegates): aplicado nos caminhos quentes (ver RedisCacheStore),
+# mas nao vale a cerimonia em logs de baixa frequencia como startup e handlers de erro.
+dotnet_diagnostic.CA1848.severity = suggestion
+
+# CA1515: a API e um executavel; tipos publicos aqui sao intencionais.
+dotnet_diagnostic.CA1515.severity = none
+
+[tests/**/*.cs]
+# Nomes de teste em portugues com underscore descrevem o cenario melhor que PascalCase.
+dotnet_diagnostic.CA1707.severity = none
+# Em teste, ConfigureAwait(false) nao agrega: nao ha SynchronizationContext.
+dotnet_diagnostic.CA2007.severity = none
+dotnet_diagnostic.CA1034.severity = none
+dotnet_diagnostic.CA1861.severity = none

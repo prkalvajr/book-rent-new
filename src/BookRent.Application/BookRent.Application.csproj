@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Camada de aplicacao: casos de uso, orquestracao e contratos (portas) para o mundo externo.
+    Depende apenas do dominio. As implementacoes das portas ficam em Infrastructure.
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="../BookRent.Domain/BookRent.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,102 @@
+name: book-rent-new
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-bookrent}
+      POSTGRES_USER: ${POSTGRES_USER:-bookrent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bookrent}
+      # Acelera o fsync em ambiente de desenvolvimento; NUNCA usar em producao.
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bookrent} -d ${POSTGRES_DB:-bookrent}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.159.0
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./deploy/otel/otel-collector-config.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8889:8889"   # metricas em formato Prometheus
+    depends_on:
+      - jaeger
+
+  jaeger:
+    image: jaegertracing/jaeger:2.20.0
+    ports:
+      - "16686:16686"  # UI de traces
+    environment:
+      LOG_LEVEL: warn
+
+  prometheus:
+    image: prom/prometheus:v3.9.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=2h
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - otel-collector
+
+  api:
+    build:
+      context: .
+      dockerfile: src/BookRent.Api/Dockerfile
+    image: bookrent-api:local
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      ASPNETCORE_HTTP_PORTS: 8080
+      # O pool e por processo: "Maximum Pool Size" x numero de replicas nao pode
+      # passar o max_connections do PostgreSQL (padrao 100, ~97 uteis).
+      # 8 mantem 11 replicas dentro do limite — ver deploy/k8s/secret.example.yaml.
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-bookrent};Username=${POSTGRES_USER:-bookrent};Password=${POSTGRES_PASSWORD:-bookrent};Include Error Detail=true;Maximum Pool Size=8"
+      ConnectionStrings__Redis: "redis:6379,abortConnect=false"
+      # Em Compose (uma replica) as migrations rodam no startup por conveniencia.
+      # Em Kubernetes isso e feito por um Job dedicado — ver deploy/k8s/migration-job.yaml.
+      Database__MigrateOnStartup: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+      OTEL_EXPORTER_OTLP_PROTOCOL: "grpc"
+      OTEL_SERVICE_NAME: "bookrent-api"
+    ports:
+      - "${API_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:8080/health/live || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  postgres-data:
+  redis-data:

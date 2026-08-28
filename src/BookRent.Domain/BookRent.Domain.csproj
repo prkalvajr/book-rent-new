@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Camada de dominio: entidades, objetos de valor, regras e invariantes de negocio.
+    Regra de dependencia: esta camada NAO referencia nenhuma outra camada nem pacote de infraestrutura.
+  -->
+
+</Project>
