@@ -182,7 +182,7 @@ placeholders e os do Compose valem só para a stack local descartável.
 | `Cache__DefaultTtl` | `00:05:00` | TTL padrão do cache |
 | `Cache__InstanceName` | `bookrent:` | Prefixo das chaves no Redis |
 | `Loans__DefaultLoanPeriodDays` | `14` | Prazo de devolução |
-| `Loans__IdempotencyRetention` | `24:00:00` | Por quanto tempo uma `Idempotency-Key` vale para replay |
+| `Loans__IdempotencyRetention` | `1.00:00:00` | Por quanto tempo uma `Idempotency-Key` vale para replay. Formato `TimeSpan`: use `d.hh:mm:ss` — `"24:00:00"` seria lido como **24 dias**, não 24 horas |
 | `ASPNETCORE_ENVIRONMENT` | `Production` | `Development` habilita Scalar e OpenAPI |
 | `ASPNETCORE_HTTP_PORTS` | `8080` | Porta do Kestrel |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | — | Vazio desliga a exportação de telemetria |
