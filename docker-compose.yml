@@ -39,16 +39,16 @@ services:
     volumes:
       - ./deploy/otel/otel-collector-config.yaml:/etc/otel/config.yaml:ro
     ports:
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
-      - "8889:8889"   # metricas em formato Prometheus
+      - "${OTLP_GRPC_PORT:-4317}:4317"   # OTLP gRPC
+      - "${OTLP_HTTP_PORT:-4318}:4318"   # OTLP HTTP
+      - "${OTEL_METRICS_PORT:-8889}:8889"   # metricas em formato Prometheus
     depends_on:
       - jaeger
 
   jaeger:
     image: jaegertracing/jaeger:2.20.0
     ports:
-      - "16686:16686"  # UI de traces
+      - "${JAEGER_UI_PORT:-16686}:16686"  # UI de traces
     environment:
       LOG_LEVEL: warn
 
@@ -60,7 +60,7 @@ services:
     volumes:
       - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports:
-      - "9090:9090"
+      - "${PROMETHEUS_PORT:-9090}:9090"
     depends_on:
       - otel-collector
 

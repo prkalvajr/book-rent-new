@@ -80,7 +80,12 @@ cp .env.example .env
 POSTGRES_PORT=5442
 REDIS_PORT=6389
 API_PORT=8085
+JAEGER_UI_PORT=16687
+PROMETHEUS_PORT=9091
 ```
+
+Todas as portas publicadas são parametrizáveis — inclusive as de observabilidade —,
+então dá para rodar duas stacks do projeto lado a lado.
 
 > Em máquinas com um PostgreSQL nativo instalado, a porta 5432 costuma já estar tomada —
 > e o container fica na sombra dele sem erro aparente. Se `docker compose up` funcionar mas
