@@ -319,6 +319,33 @@ public class CatalogEndpointsTests(BookRentApiFactory factory)
         relido!.TotalCopies.ShouldBe(9, "a releitura vem da fonte de verdade, nao do valor obsoleto");
     }
 
+    // O UseExceptionHandler limpa a resposta antes de reexecutar o pipeline. Se a
+    // correlacao fosse lida do cabecalho nesse ponto, toda resposta de erro sairia com
+    // correlationId vazio — exatamente onde ele mais serve para investigar.
+    [Fact]
+    public async Task Resposta_de_erro_deve_carregar_o_correlation_id_no_corpo_e_no_cabecalho()
+    {
+        using var client = factory.CreateClient();
+        const string Correlacao = "corr-erro-12345";
+
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            new Uri($"/books/{Guid.CreateVersion7()}", UriKind.Relative));
+        request.Headers.Add("X-Correlation-Id", Correlacao);
+
+        using var response = await client.SendAsync(request, Ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        response.Headers.GetValues("X-Correlation-Id").ShouldContain(Correlacao);
+
+        var problema = await response.Content.ReadFromJsonAsync<ProblemaCompleto>(Ct);
+
+        problema!.CorrelationId.ShouldBe(Correlacao);
+        problema.Code.ShouldBe(BookErrors.NotFound);
+    }
+
+    private sealed record ProblemaCompleto(string? Code, string? CorrelationId, string? Detail, int Status);
+
     [Fact]
     public async Task A_trilha_de_auditoria_e_append_only()
     {

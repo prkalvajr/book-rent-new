@@ -32,8 +32,19 @@ builder.Services.AddProblemDetails(options =>
     {
         context.ProblemDetails.Instance = $"{context.HttpContext.Request.Method} {context.HttpContext.Request.Path}";
         context.ProblemDetails.Extensions["traceId"] = context.HttpContext.TraceIdentifier;
-        context.ProblemDetails.Extensions["correlationId"] =
-            context.HttpContext.Response.Headers[CorrelationIdMiddleware.HeaderName].ToString();
+
+        // A correlacao vem do contexto de requisicao, e nao do cabecalho da resposta:
+        // o UseExceptionHandler limpa a resposta antes de reexecutar o pipeline, entao
+        // nesse ponto o cabecalho ja nao esta mais la — e toda resposta de erro sairia
+        // com correlationId vazio, justamente onde ele mais importa.
+        var correlationId = context.HttpContext.RequestServices
+            .GetRequiredService<ICorrelationContext>()
+            .CorrelationId;
+
+        context.ProblemDetails.Extensions["correlationId"] = correlationId;
+
+        // Reposto tambem no cabecalho, para o cliente correlacionar sem ler o corpo.
+        context.HttpContext.Response.Headers[CorrelationIdMiddleware.HeaderName] = correlationId;
     };
 });
 

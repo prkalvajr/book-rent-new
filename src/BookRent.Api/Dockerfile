@@ -8,7 +8,10 @@ WORKDIR /source
 
 # Copia primeiro apenas os arquivos de projeto: a camada de restore so
 # e invalidada quando alguma dependencia muda, nao a cada alteracao de codigo.
-COPY global.json Directory.Build.props Directory.Packages.props ./
+# O .editorconfig entra aqui porque carrega as supressoes de analisador da pasta de
+# migrations (codigo gerado). Sem ele, TreatWarningsAsErrors quebra o build da imagem
+# mesmo com o build local verde.
+COPY global.json Directory.Build.props Directory.Packages.props .editorconfig ./
 COPY src/BookRent.Domain/BookRent.Domain.csproj src/BookRent.Domain/
 COPY src/BookRent.Application/BookRent.Application.csproj src/BookRent.Application/
 COPY src/BookRent.Infrastructure/BookRent.Infrastructure.csproj src/BookRent.Infrastructure/

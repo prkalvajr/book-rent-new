@@ -322,6 +322,104 @@ public class ConcurrencyTests(BookRentApiFactory factory)
         sucesso.StatusCode.ShouldBe(HttpStatusCode.Created, "o rollback liberou a chave");
     }
 
+    // Cenario 5 da secao 7.4: alem do minimo exigido. Com ele a suite demonstra AS DUAS
+    // estrategias de concorrencia de proposito — o cenario do ultimo exemplar exercita o
+    // caminho atomico/pessimista, este exercita o otimista.
+    [Fact]
+    public async Task Patches_simultaneos_no_mesmo_livro_devem_produzir_um_200_e_um_409()
+    {
+        using var client = factory.CreateClient();
+        var livro = await client.CriarLivroAsync(exemplares: 3, cancellationToken: Ct);
+
+        // Os dois partem da MESMA versao, como dois bibliotecarios que abriram a tela juntos.
+        var respostas = await Task.WhenAll(
+            client.PatchAsJsonAsync(
+                new Uri($"/books/{livro.Id}", UriKind.Relative),
+                new UpdateBookRequest("Edicao A", null, null, null, livro.Version),
+                Ct),
+            client.PatchAsJsonAsync(
+                new Uri($"/books/{livro.Id}", UriKind.Relative),
+                new UpdateBookRequest("Edicao B", null, null, null, livro.Version),
+                Ct));
+
+        try
+        {
+            respostas.Count(r => r.StatusCode == HttpStatusCode.OK)
+                .ShouldBe(1, "so uma edicao pode vencer");
+
+            var perdedora = respostas.Single(r => r.StatusCode != HttpStatusCode.OK);
+            perdedora.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+            (await perdedora.CodigoDoProblemaAsync(Ct)).ShouldBe(BookErrors.ConcurrentModification);
+
+            // Nada de mesclagem silenciosa: o estado final e o da vencedora, inteiro.
+            var atual = await client.GetFromJsonAsync<BookResponse>(
+                new Uri($"/books/{livro.Id}", UriKind.Relative), Ct);
+
+            atual!.Title.ShouldBeOneOf("Edicao A", "Edicao B");
+            atual.Version.ShouldBe(livro.Version + 1, "apenas um incremento de versao");
+        }
+        finally
+        {
+            foreach (var resposta in respostas)
+            {
+                resposta.Dispose();
+            }
+        }
+    }
+
+    // Guarda a decisao da secao 9.7 no nivel de integracao: o token cobre so os campos
+    // descritivos. Se o emprestimo passasse a incrementar version, este teste cairia — e
+    // na pratica um bibliotecario nao conseguiria editar um livro movimentado.
+    [Fact]
+    public async Task Emprestimo_concorrente_nao_pode_derrubar_uma_edicao_de_catalogo()
+    {
+        using var client = factory.CreateClient();
+        var leitor = await client.CriarLeitorAsync(Ct);
+        var livro = await client.CriarLivroAsync(exemplares: 5, cancellationToken: Ct);
+
+        using var largada = new SemaphoreSlim(0, 2);
+
+        var edicao = Task.Run(
+            async () =>
+            {
+                await largada.WaitAsync(Ct);
+
+                return await client.PatchAsJsonAsync(
+                    new Uri($"/books/{livro.Id}", UriKind.Relative),
+                    new UpdateBookRequest("Titulo corrigido pela bibliotecaria", null, null, null, livro.Version),
+                    Ct);
+            },
+            Ct);
+
+        var emprestimo = Task.Run(
+            async () =>
+            {
+                await largada.WaitAsync(Ct);
+
+                return await client.TentarEmprestarAsync(
+                    livro.Id, leitor.Id, Guid.CreateVersion7().ToString(), Ct);
+            },
+            Ct);
+
+        largada.Release(2);
+
+        using var respostaEdicao = await edicao;
+        using var respostaEmprestimo = await emprestimo;
+
+        respostaEdicao.StatusCode.ShouldBe(
+            HttpStatusCode.OK,
+            "emprestimo mexe no contador, edicao mexe nos campos descritivos: nao ha conflito real");
+        respostaEmprestimo.StatusCode.ShouldBe(HttpStatusCode.Created);
+
+        // As duas operacoes sobreviveram, cada uma na sua metade da linha.
+        var atual = await client.GetFromJsonAsync<BookResponse>(
+            new Uri($"/books/{livro.Id}", UriKind.Relative), Ct);
+
+        atual!.Title.ShouldBe("Titulo corrigido pela bibliotecaria");
+        atual.AvailableCopies.ShouldBe(4, "o emprestimo nao pode ter sido perdido pela edicao");
+        atual.ActiveLoans.ShouldBe(1);
+    }
+
     private static class LoanEndpointsHeaders
     {
         public const string Replayed = "Idempotency-Replayed";
