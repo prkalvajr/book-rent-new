@@ -127,4 +127,27 @@ internal sealed class BookRepository(BookRentDbContext dbContext) : IBookReposit
             .ExecuteUpdateAsync(
                 setters => setters.SetProperty(book => book.AvailableCopies, book => book.AvailableCopies + 1),
                 cancellationToken);
+
+    /// <inheritdoc />
+    public Task<int> DeactivateIfNoActiveLoansAsync(
+        Book book,
+        int expectedVersion,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(book);
+
+        return dbContext.Books
+            .Where(candidate =>
+                candidate.Id == book.Id
+                && candidate.Version == expectedVersion
+                && candidate.IsActive
+                && candidate.AvailableCopies == candidate.TotalCopies)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(candidate => candidate.IsActive, false)
+                    .SetProperty(candidate => candidate.DeactivatedAt, book.DeactivatedAt)
+                    .SetProperty(candidate => candidate.UpdatedAt, book.UpdatedAt)
+                    .SetProperty(candidate => candidate.Version, expectedVersion + 1),
+                cancellationToken);
+    }
 }

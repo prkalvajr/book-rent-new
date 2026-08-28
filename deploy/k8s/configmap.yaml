@@ -12,7 +12,7 @@ data:
   # Desligado de proposito: com varias replicas a migration roda no Job dedicado
   # (migration-job.yaml) como etapa anterior ao rollout.
   Database__MigrateOnStartup: "false"
-  Cache__DefaultTtl: "00:05:00"
+  Cache__DefaultTtl: "00:01:00"
   Cache__InstanceName: "bookrent:"
   OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability.svc.cluster.local:4317"
   OTEL_EXPORTER_OTLP_PROTOCOL: "grpc"

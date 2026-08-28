@@ -61,4 +61,18 @@ public interface IBookRepository
 
     /// <summary>Devolve um exemplar a circulacao, sem ultrapassar o acervo.</summary>
     Task<int> ReleaseCopyAsync(Guid bookId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Desativa o livro com a checagem de emprestimo ativo DENTRO do proprio UPDATE:
+    /// <c>available_copies = total_copies</c> equivale a "zero emprestimos ativos" pela
+    /// invariante, e o banco avalia isso contra o valor corrente.
+    ///
+    /// Um SELECT previo nao serviria: emprestimo nao altera <c>Version</c> (secao 9.7),
+    /// entao um emprestimo criado entre a leitura e a gravacao passaria despercebido e o
+    /// livro terminaria inativo com exemplar emprestado.
+    /// </summary>
+    Task<int> DeactivateIfNoActiveLoansAsync(
+        Book book,
+        int expectedVersion,
+        CancellationToken cancellationToken = default);
 }

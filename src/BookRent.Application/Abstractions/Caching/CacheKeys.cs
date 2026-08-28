@@ -8,7 +8,9 @@ namespace BookRent.Application.Abstractions.Caching;
 /// </summary>
 public static class CacheKeys
 {
-    public const string Prefix = "bookrent:";
+    // Sem prefixo proprio: quem namespaceia as chaves e o InstanceName do
+    // IDistributedCache (Cache:InstanceName), aplicado pelo adaptador do Redis. Um
+    // prefixo aqui produzia a chave duplicada "bookrent:bookrent:book:{id}".
 
     /// <summary>
     /// Snapshot completo do livro. Chave unica do cache: serve GET /books/{id} e
@@ -16,5 +18,5 @@ public static class CacheKeys
     /// Nao ha chave separada para disponibilidade — qualquer miss le a linha inteira
     /// do livro de qualquer forma, entao separar nao economizaria consulta nenhuma.
     /// </summary>
-    public static string Book(Guid bookId) => $"{Prefix}book:{bookId}";
+    public static string Book(Guid bookId) => $"book:{bookId}";
 }

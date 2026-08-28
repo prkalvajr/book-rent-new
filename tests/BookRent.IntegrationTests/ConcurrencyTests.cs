@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using BookRent.Application.Books;
 using BookRent.Application.Loans;
 using BookRent.Application.Users;
+using BookRent.Domain.Auditing;
 using BookRent.Domain.Books;
 using BookRent.Domain.Loans;
 using BookRent.Infrastructure.Persistence;
@@ -473,6 +474,165 @@ public class ConcurrencyTests(BookRentApiFactory factory)
         atual!.Title.ShouldBe("Titulo corrigido pela bibliotecaria");
         atual.AvailableCopies.ShouldBe(4, "o emprestimo nao pode ter sido perdido pela edicao");
         atual.ActiveLoans.ShouldBe(1);
+    }
+
+    // O plano (secao 4) e o README afirmam que o risco "esquecer de auditar e silencioso"
+    // esta mitigado por um teste por operacao. Para os tres eventos de emprestimo — os que
+    // o desafio exige nominalmente — essa mitigacao nao existia: remover o
+    // auditTrail.Record dos handlers deixava a suite inteiramente verde.
+    [Fact]
+    public async Task Deve_registrar_a_trilha_dos_tres_eventos_de_emprestimo()
+    {
+        using var client = factory.CreateClient().ComAtor("atendente-teste");
+        var correlacao = $"corr-loan-{Guid.CreateVersion7():N}";
+        client.DefaultRequestHeaders.Add("X-Correlation-Id", correlacao);
+
+        var leitor = await client.CriarLeitorAsync(Ct);
+        var livro = await client.CriarLivroAsync(exemplares: 3, cancellationToken: Ct);
+
+        var devolvido = await client.EmprestarAsync(livro.Id, leitor.Id, Ct);
+        var cancelado = await client.EmprestarAsync(livro.Id, leitor.Id, Ct);
+
+        using var devolucao = await client.PostAsync(
+            new Uri($"/loans/{devolvido.Id}/return", UriKind.Relative), null, Ct);
+        devolucao.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        using var cancelamento = await client.PostAsync(
+            new Uri($"/loans/{cancelado.Id}/cancel", UriKind.Relative), null, Ct);
+        cancelamento.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        using var scope = factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<BookRentDbContext>();
+
+        var eventos = await dbContext.AuditEvents
+            .AsNoTracking()
+            .Where(evento => evento.CorrelationId == correlacao && evento.EntityType == AuditEntityTypes.Loan)
+            .OrderBy(evento => evento.Id)
+            .ToListAsync(Ct);
+
+        eventos.Select(evento => evento.Action).ShouldBe(
+            [
+                AuditActions.LoanCreated,
+                AuditActions.LoanCreated,
+                AuditActions.LoanReturned,
+                AuditActions.LoanCancelled,
+            ]);
+
+        eventos.ShouldAllBe(evento => evento.Actor == "atendente-teste");
+        eventos.ShouldAllBe(evento => evento.OccurredAt.Offset == TimeSpan.Zero);
+
+        // Cada evento aponta para o emprestimo certo e carrega o suficiente para
+        // entender a mudanca.
+        eventos.Single(evento => evento.Action == AuditActions.LoanReturned)
+            .EntityId.ShouldBe(devolvido.Id);
+        eventos.Single(evento => evento.Action == AuditActions.LoanCancelled)
+            .EntityId.ShouldBe(cancelado.Id);
+
+        var criacao = eventos.First(evento => evento.Action == AuditActions.LoanCreated);
+        criacao.Data.ShouldContain(livro.Id.ToString());
+        criacao.Data.ShouldContain("dueAt");
+    }
+
+    // O replay idempotente nao cria emprestimo, entao tambem nao pode gerar evento novo:
+    // a trilha registra fatos, e nesse caso nao houve fato nenhum.
+    [Fact]
+    public async Task Replay_idempotente_nao_pode_gerar_um_segundo_evento_de_auditoria()
+    {
+        using var client = factory.CreateClient();
+        var leitor = await client.CriarLeitorAsync(Ct);
+        var livro = await client.CriarLivroAsync(exemplares: 2, cancellationToken: Ct);
+        var chave = Guid.CreateVersion7().ToString();
+
+        using var primeira = await client.TentarEmprestarAsync(livro.Id, leitor.Id, chave, Ct);
+        primeira.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var emprestimo = await primeira.Content.ReadFromJsonAsync<LoanResponse>(Ct);
+
+        using var replay = await client.TentarEmprestarAsync(livro.Id, leitor.Id, chave, Ct);
+        replay.StatusCode.ShouldBe(HttpStatusCode.Created);
+
+        using var scope = factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<BookRentDbContext>();
+
+        var eventos = await dbContext.AuditEvents
+            .AsNoTracking()
+            .CountAsync(evento => evento.EntityId == emprestimo!.Id, Ct);
+
+        eventos.ShouldBe(1, "o replay reaproveita a resposta; nao ha fato novo a registrar");
+    }
+
+    // Regressao: a checagem de emprestimo ativo era um SELECT sem lock ANTES do UPDATE.
+    // Como emprestimo nao altera Version (por desenho, secao 9.7), um emprestimo criado
+    // entre a leitura e a gravacao passava despercebido e o livro terminava inativo com
+    // exemplar emprestado. A condicao foi para dentro do proprio UPDATE.
+    [Fact]
+    public async Task Livro_nunca_pode_ficar_inativo_com_emprestimo_ativo()
+    {
+        using var client = factory.CreateClient();
+        var leitor = await client.CriarLeitorAsync(Ct);
+
+        // Repetido: e uma corrida, e uma execucao isolada nao diz muito.
+        for (var iteracao = 0; iteracao < 12; iteracao++)
+        {
+            var livro = await client.CriarLivroAsync(exemplares: 1, cancellationToken: Ct);
+
+            using var largada = new SemaphoreSlim(0, 2);
+
+            var desativacao = Task.Run(
+                async () =>
+                {
+                    await largada.WaitAsync(Ct);
+                    return await client.DeleteAsync(new Uri($"/books/{livro.Id}", UriKind.Relative), Ct);
+                },
+                Ct);
+
+            var emprestimo = Task.Run(
+                async () =>
+                {
+                    await largada.WaitAsync(Ct);
+                    return await client.TentarEmprestarAsync(
+                        livro.Id, leitor.Id, Guid.CreateVersion7().ToString(), Ct);
+                },
+                Ct);
+
+            largada.Release(2);
+
+            using var respostaDesativacao = await desativacao;
+            using var respostaEmprestimo = await emprestimo;
+
+            var desativou = respostaDesativacao.StatusCode == HttpStatusCode.NoContent;
+            var emprestou = respostaEmprestimo.StatusCode == HttpStatusCode.Created;
+
+            // Os dois podem falhar (ordem infeliz), mas nunca podem AMBOS vencer.
+            (desativou && emprestou).ShouldBeFalse(
+                $"iteracao {iteracao}: livro desativado com emprestimo ativo");
+
+            var estado = await client.GetFromJsonAsync<BookResponse>(
+                new Uri($"/books/{livro.Id}", UriKind.Relative), Ct);
+
+            if (!estado!.IsActive)
+            {
+                estado.ActiveLoans.ShouldBe(0, $"iteracao {iteracao}: inativo nao pode ter emprestimo ativo");
+            }
+        }
+    }
+
+    [Fact]
+    public async Task Desativar_livro_com_emprestimo_ativo_deve_responder_409()
+    {
+        using var client = factory.CreateClient();
+        var leitor = await client.CriarLeitorAsync(Ct);
+        var livro = await client.CriarLivroAsync(exemplares: 2, cancellationToken: Ct);
+
+        await client.EmprestarAsync(livro.Id, leitor.Id, Ct);
+
+        using var response = await client.DeleteAsync(new Uri($"/books/{livro.Id}", UriKind.Relative), Ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        (await response.CodigoDoProblemaAsync(Ct)).ShouldBe(BookErrors.HasActiveLoans);
+
+        var estado = await client.GetFromJsonAsync<BookResponse>(
+            new Uri($"/books/{livro.Id}", UriKind.Relative), Ct);
+        estado!.IsActive.ShouldBeTrue("a recusa nao pode deixar o livro meio desativado");
     }
 
     private static class LoanEndpointsHeaders

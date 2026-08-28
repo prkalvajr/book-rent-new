@@ -334,7 +334,7 @@ public class CatalogEndpointsTests(BookRentApiFactory factory)
         var criado = await client.CriarLivroAsync(exemplares: 5, cancellationToken: Ct);
 
         var redis = factory.Services.GetRequiredService<IConnectionMultiplexer>().GetDatabase();
-        var chave = $"bookrent:{CacheKeys.Book(criado.Id)}";
+        var chave = $"bookrent:{CacheKeys.Book(criado.Id)}";  // InstanceName + chave logica
 
         (await redis.KeyExistsAsync(chave)).ShouldBeFalse("a criacao invalida, nao popula");
 

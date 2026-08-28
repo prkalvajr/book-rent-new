@@ -80,7 +80,7 @@ public sealed class CreateLoanHandler(
         // row lock do livro e enfileiraria todos os emprestimos daquele titulo.
         if (!result.Replayed)
         {
-            await cache.RemoveAsync(CacheKeys.Book(request.BookId), cancellationToken).ConfigureAwait(false);
+            await cache.RemoveAsync(CacheKeys.Book(request.BookId), CancellationToken.None).ConfigureAwait(false);
         }
 
         return result;

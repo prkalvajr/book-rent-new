@@ -100,7 +100,7 @@ public sealed class LoanLifecycleHandler(
             },
             cancellationToken).ConfigureAwait(false);
 
-        await cache.RemoveAsync(CacheKeys.Book(bookId), cancellationToken).ConfigureAwait(false);
+        await cache.RemoveAsync(CacheKeys.Book(bookId), CancellationToken.None).ConfigureAwait(false);
 
         return response;
     }
