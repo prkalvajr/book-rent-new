@@ -184,6 +184,41 @@ public class CatalogEndpointsTests(BookRentApiFactory factory)
         alterado.AvailableCopies.ShouldBe(6);
     }
 
+    // Regressao: alterar descritivos E quantidade no mesmo PATCH fazia a entidade em
+    // memoria incrementar Version duas vezes (um Touch por metodo do dominio) enquanto o
+    // UPDATE gravava +1. A resposta saia um passo a frente do banco, e o cliente que
+    // usasse essa versao no PATCH seguinte levava um 409 espurio.
+    [Fact]
+    public async Task Patch_que_altera_descritivos_e_quantidade_deve_devolver_a_versao_do_banco()
+    {
+        using var client = factory.CreateClient();
+        var criado = await client.CriarLivroAsync(exemplares: 2, cancellationToken: Ct);
+
+        using var response = await client.PatchAsJsonAsync(
+            new Uri($"/books/{criado.Id}", UriKind.Relative),
+            new UpdateBookRequest("Titulo novo", null, "Autor novo", 5, criado.Version),
+            Ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var devolvido = await response.Content.ReadFromJsonAsync<BookResponse>(Ct);
+        var noBanco = await client.GetFromJsonAsync<BookResponse>(
+            new Uri($"/books/{criado.Id}", UriKind.Relative), Ct);
+
+        devolvido!.Version.ShouldBe(criado.Version + 1, "um PATCH e uma versao, quantos campos forem");
+        devolvido.Version.ShouldBe(noBanco!.Version, "a resposta nao pode divergir do banco");
+        devolvido.TotalCopies.ShouldBe(noBanco.TotalCopies);
+        devolvido.AvailableCopies.ShouldBe(noBanco.AvailableCopies);
+
+        // E a versao devolvida tem de servir para o proximo PATCH.
+        using var seguinte = await client.PatchAsJsonAsync(
+            new Uri($"/books/{criado.Id}", UriKind.Relative),
+            new UpdateBookRequest("Mais um titulo", null, null, null, devolvido.Version),
+            Ct);
+
+        seguinte.StatusCode.ShouldBe(HttpStatusCode.OK, "a versao devolvida precisa ser utilizavel");
+    }
+
     // Caminho otimista da secao 2.4: o cliente envia a versao que leu e o UPDATE so
     // acontece se ninguem tiver alterado o livro nesse meio tempo.
     [Fact]

@@ -86,7 +86,22 @@ public sealed class UpdateBookHandler(
                         After = new { book.Title, book.Isbn, book.Author, book.TotalCopies },
                     });
 
-                return book;
+                // A resposta vem de uma RELEITURA, e nao da entidade em memoria. Ela
+                // divergiria do banco em dois pontos:
+                //
+                //   Version — os metodos do dominio incrementam a cada chamada, entao um
+                //   PATCH que altera descritivos E quantidade deixaria a entidade em
+                //   +2 enquanto o UPDATE grava +1. O cliente usaria essa versao no proximo
+                //   PATCH e levaria um 409 espurio.
+                //
+                //   AvailableCopies — o UPDATE soma o delta ao valor CORRENTE (escrita
+                //   relativa, secao 9.7). Um emprestimo concorrente torna o valor lido
+                //   obsoleto, e a entidade nao sabe disso.
+                //
+                // Uma consulta a mais numa operacao administrativa e rara; devolver numero
+                // errado sai mais caro.
+                return await books.FindReadOnlyAsync(id, ct).ConfigureAwait(false)
+                    ?? throw new DomainException(BookErrors.NotFound, $"Livro {id} nao encontrado.");
             },
             cancellationToken).ConfigureAwait(false);
 
