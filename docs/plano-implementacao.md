@@ -115,10 +115,20 @@ AuditEvent                              ← append-only: nunca UPDATE, nunca DEL
   EntityType, EntityId, Action, Actor,
   OccurredAt (timestamptz UTC), CorrelationId, Data (jsonb)
 
-IdempotencyRecord
-  Key, Endpoint, RequestHash (SHA-256), ResponseStatus,
-  ResponseBody (jsonb), LoanId?, CreatedAt, ExpiresAt
+IdempotencyRecord                       ← PK COMPOSTA (Endpoint, Key)
+  Endpoint          string(100)         escopo da chave
+  Key               string(200)         valor do cabecalho Idempotency-Key
+  RequestHash       char(64)            SHA-256 do corpo canonico
+  ResponseStatus    int?                nulos ate a transacao concluir
+  ResponseBody      jsonb?
+  LoanId            Guid?               ponteiro de diagnostico, sem FK
+  CreatedAt, ExpiresAt  DateTimeOffset
 ```
+
+**Por que a PK é composta, e não só a `Key`:** ela escopa a chave ao endpoint, então dois
+endpoints podem receber a mesma string de um cliente ingênuo sem colidir. E é exatamente
+este índice único que serve de **mutex** entre requisições concorrentes (§3) — a segunda
+bloqueia nele até a primeira commitar.
 
 Índices, além de PKs e uniques: `loans(book_id, loaned_at desc)`,
 `loans(user_id, loaned_at desc)`, `loans(book_id) WHERE status = 'Active'` (parcial, para
@@ -808,7 +818,8 @@ corrida. **Custo:** essa escrita não passa pelo modelo em memória (ver §2.2).
 
 > **Escolha:** `Guid` gerado com `Guid.CreateVersion7()` (.NET 9+) em `Book`, `User` e
 > `Loan` — as entidades cujo id aparece na URL. `AuditEvent` usa `bigint identity`.
-> `IdempotencyRecord` não tem chave substituta: a PK é a própria `Key` do cabeçalho.
+> `IdempotencyRecord` não tem chave substituta: a PK é composta pela chave natural
+> `(Endpoint, Key)` — ver §1.2.
 
 **O motivo é segurança de exposição, não concorrência.** Vale desfazer uma confusão comum
 antes de tudo: **`bigint identity` não tem problema algum com múltiplas réplicas.** No
