@@ -106,7 +106,7 @@ dotnet test tests/BookRent.UnitTests            # rápidos, sem I/O
 dotnet test tests/BookRent.IntegrationTests     # exige Docker
 ```
 
-**100 testes: 59 unitários e 41 de integração.** Os de integração **não** usam banco
+**103 testes: 59 unitários e 44 de integração.** Os de integração **não** usam banco
 in-memory — sobem PostgreSQL 17 e Redis 8 reais via Testcontainers, porque os cenários de
 concorrência dependem do comportamento específico do PostgreSQL. Um teste verde sobre uma
 semântica que não existe em produção é o pior tipo de teste verde.
