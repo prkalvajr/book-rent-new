@@ -11,8 +11,10 @@ namespace BookRent.IntegrationTests;
 [Collection(IntegrationTestSuite.Name)]
 public class HealthEndpointsTests(BookRentApiFactory factory)
 {
+    // Caminho feliz. O requisito de verdade — nao falhar por causa de PostgreSQL ou
+    // Redis fora — e exercitado em DegradacaoTests, que suspende a dependencia.
     [Fact]
-    public async Task Live_deve_responder_200_apenas_com_o_processo_ativo()
+    public async Task Live_deve_responder_200_com_tudo_no_ar()
     {
         using var client = factory.CreateClient();
 

@@ -26,6 +26,21 @@ public sealed class BookRentApiFactory : WebApplicationFactory<Program>, IAsyncL
 
     public string RedisConnectionString => _redis.GetConnectionString();
 
+    /// <summary>
+    /// Suspende o Redis para exercitar a degradacao: a API precisa continuar servindo
+    /// leituras a partir do PostgreSQL, e <c>/health/live</c> precisa continuar em 200.
+    ///
+    /// Usa pause, e nao stop: parar o container faria o Testcontainers remapear a porta
+    /// do host ao reiniciar, invalidando a connection string ja injetada na API.
+    ///
+    /// Como toda a suite de integracao vive numa unica colecao, os testes rodam em
+    /// sequencia — suspender o Redis aqui nao afeta nenhum teste concorrente. Ainda
+    /// assim, quem chama deve religar em bloco finally.
+    /// </summary>
+    public Task SuspenderRedisAsync() => _redis.PauseAsync();
+
+    public Task ReligarRedisAsync() => _redis.UnpauseAsync();
+
     public async ValueTask InitializeAsync()
     {
         await Task.WhenAll(_postgres.StartAsync(), _redis.StartAsync()).ConfigureAwait(false);
