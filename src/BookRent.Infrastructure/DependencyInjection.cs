@@ -64,6 +64,12 @@ public static class DependencyInjection
     {
         services.AddOptions<CacheOptions>()
             .Bind(configuration.GetSection(CacheOptions.SectionName))
+            .Validate(
+                options => options.DefaultTtl > TimeSpan.Zero,
+                "Cache:DefaultTtl deve ser positivo.")
+            .Validate(
+                options => !string.IsNullOrWhiteSpace(options.InstanceName),
+                "Cache:InstanceName e obrigatorio: e o prefixo das chaves no Redis.")
             .ValidateOnStart();
 
         services.AddSingleton<IConnectionMultiplexer>(serviceProvider =>

@@ -181,7 +181,7 @@ dotnet test tests/BookRent.UnitTests            # rápidos, sem I/O
 dotnet test tests/BookRent.IntegrationTests     # exige Docker
 ```
 
-**121 testes: 63 unitários e 58 de integração.** Os de integração **não** usam banco
+**122 testes: 63 unitários e 59 de integração.** Os de integração **não** usam banco
 in-memory — sobem PostgreSQL 17 e Redis 8 reais via Testcontainers, porque os cenários de
 concorrência dependem do comportamento específico do PostgreSQL. Um teste verde sobre uma
 semântica que não existe em produção é o pior tipo de teste verde.
@@ -461,7 +461,8 @@ e servindo **dois** endpoints: `GET /books/{id}` devolve o snapshot inteiro e
 literalmente os mesmos bytes e não conseguem divergir.
 
 *Cache-aside*: a leitura popula, a escrita **invalida com `DEL`**, sempre **depois do
-commit**. Gatilhos: criação, `PATCH`, `DELETE`, empréstimo, devolução e cancelamento.
+commit**. Gatilhos: `PATCH`, `DELETE`, empréstimo, devolução e cancelamento. A criação
+não invalida nada — a chave de um livro recém-criado não pode existir.
 
 **Por que uma chave com o livro todo, e não só a disponibilidade:** no *miss*, as duas
 opções fazem o mesmo `SELECT` e recebem a linha inteira. Cachear só os números seria
@@ -482,6 +483,13 @@ aproveita B-tree. Índice deixa rápido sem criar obrigação de coerência perm
 cache defasado pode mostrar um número errado numa tela; nunca pode causar um empréstimo
 errado. Falha de Redis é degradação, não erro: o `RedisCacheStore` registra log e devolve o
 controle ao banco.
+
+E **indisponibilidade** do Redis não pode virar indisponibilidade de escrita. A invalidação
+pós-commit tem teto de 500 ms: passado isso a remoção segue em background e a resposta vai
+embora, porque o dado já mudou no banco e segurar a conexão do pool por segundos — com 8
+por réplica — derrubaria o serviço. Coberto por `DegradacaoTests`, que suspende o container
+do Redis; foi assim que se descobriu que a versão anterior devolvia **500 numa escrita já
+commitada**.
 
 **Custos assumidos:** existe a janela de corrida clássica (um leitor pode gravar o valor
 antigo depois da invalidação) e não há proteção contra *stampede*. O **TTL é rede de

@@ -112,6 +112,76 @@ public class DegradacaoTests(BookRentApiFactory factory)
         }
     }
 
+    // Regressao do defeito mais grave da segunda revisao: HTTP 500 DEPOIS de a transacao
+    // ter commitado.
+    //
+    // Os demais testes desta classe nao o pegavam porque cada um fazia UMA escrita com o
+    // Redis pausado — a primeira volta como RedisTimeoutException, que era capturada. E a
+    // segunda ou a terceira que volta como TaskCanceledException: o StackExchange.Redis
+    // cancela o backlog quando desiste da conexao, e TaskCanceledException herda de
+    // OperationCanceledException, que o filtro do catch deixava escapar. Nenhum
+    // IExceptionHandler a reconhecia, e o cliente recebia 500 com o emprestimo ja criado.
+    //
+    // Por isso este teste encadeia varias escritas.
+    [Fact]
+    public async Task Escritas_encadeadas_com_o_redis_fora_nao_podem_falhar()
+    {
+        using var client = factory.CreateClient();
+        var leitor = await client.CriarLeitorAsync(Ct);
+        var livro = await client.CriarLivroAsync(exemplares: 5, cancellationToken: Ct);
+        var descartavel = await client.CriarLivroAsync(exemplares: 1, cancellationToken: Ct);
+        var emprestimo = await client.EmprestarAsync(livro.Id, leitor.Id, Ct);
+
+        await factory.SuspenderRedisAsync();
+
+        var cronometro = System.Diagnostics.Stopwatch.StartNew();
+
+        try
+        {
+            using var patch = await client.PatchAsJsonAsync(
+                new Uri($"/books/{livro.Id}", UriKind.Relative),
+                new UpdateBookRequest("Titulo com redis fora", null, null, null, null),
+                Ct);
+            patch.StatusCode.ShouldBe(HttpStatusCode.OK, "escrita 1");
+
+            using var devolucao = await client.PostAsync(
+                new Uri($"/loans/{emprestimo.Id}/return", UriKind.Relative), null, Ct);
+            devolucao.StatusCode.ShouldBe(HttpStatusCode.OK, "escrita 2");
+
+            using var delete = await client.DeleteAsync(
+                new Uri($"/books/{descartavel.Id}", UriKind.Relative), Ct);
+            delete.StatusCode.ShouldBe(HttpStatusCode.NoContent, "escrita 3");
+
+            // Era exatamente aqui que vinha o 500, com o emprestimo ja gravado.
+            using var novoEmprestimo = await client.TentarEmprestarAsync(
+                livro.Id, leitor.Id, Guid.CreateVersion7().ToString(), Ct);
+            novoEmprestimo.StatusCode.ShouldBe(
+                HttpStatusCode.Created,
+                "escrita 4: a operacao commitou, entao a resposta nao pode ser erro");
+
+            cronometro.Stop();
+
+            // A invalidacao pos-commit tem teto de 500 ms. Sem ele, cada escrita ficava
+            // ~6 s presa no cliente Redis e a queda do cache virava indisponibilidade de
+            // escrita — com o pool em 8 conexoes por replica, isso derruba o servico.
+            // O limite e generoso de proposito, para nao ficar intermitente em CI.
+            cronometro.Elapsed.ShouldBeLessThan(
+                TimeSpan.FromSeconds(15),
+                "quatro escritas nao podem somar minutos so porque o cache caiu");
+        }
+        finally
+        {
+            await factory.ReligarRedisAsync();
+        }
+
+        // E o estado no banco tem de refletir tudo o que respondeu sucesso.
+        var estado = await client.GetFromJsonAsync<BookResponse>(
+            new Uri($"/books/{livro.Id}", UriKind.Relative), Ct);
+
+        estado!.Title.ShouldBe("Titulo com redis fora");
+        estado.ActiveLoans.ShouldBe(1, "devolveu um e emprestou outro");
+    }
+
     [Fact]
     public async Task Apos_religar_o_redis_o_cache_volta_a_operar()
     {

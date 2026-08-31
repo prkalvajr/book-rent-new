@@ -24,9 +24,18 @@ public static class DependencyInjection
     {
         ArgumentNullException.ThrowIfNull(services);
 
+        // ValidateOnStart sem Validate nao valida NADA. Sem estas regras,
+        // Loans__DefaultLoanPeriodDays=0 subia normalmente e fazia todo POST /loans
+        // responder 422 em runtime, em vez de falhar no boot.
         services.AddOptions<LoanOptions>()
             .Configure<IConfiguration>((options, configuration) =>
                 configuration.GetSection(LoanOptions.SectionName).Bind(options))
+            .Validate(
+                options => options.DefaultLoanPeriodDays > 0,
+                "Loans:DefaultLoanPeriodDays deve ser maior que zero.")
+            .Validate(
+                options => options.IdempotencyRetention > TimeSpan.Zero,
+                "Loans:IdempotencyRetention deve ser positivo. Formato TimeSpan: use d.hh:mm:ss.")
             .ValidateOnStart();
 
         services.AddScoped<CreateBookHandler>();

@@ -11,8 +11,18 @@ public interface ICacheStore
 
     Task SetAsync<T>(string key, T value, TimeSpan? ttl = null, CancellationToken cancellationToken = default);
 
-    Task RemoveAsync(string key, CancellationToken cancellationToken = default);
-
-    /// <summary>Invalida um conjunto de chaves apos uma escrita que afeta leituras cacheadas.</summary>
-    Task RemoveAsync(IEnumerable<string> keys, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Invalidacao POS-COMMIT. Nao recebe CancellationToken de proposito: a transacao ja
+    /// terminou e o dado ja mudou no banco, entao abortar a limpeza deixaria o cache
+    /// mentindo pela janela inteira do TTL.
+    ///
+    /// Em compensacao tem teto de tempo PROPRIO, para que um Redis travado nao segure a
+    /// resposta nem a conexao do pool — cache e otimizacao, e indisponibilidade dele nao
+    /// pode virar indisponibilidade de escrita.
+    ///
+    /// NUNCA propaga excecao: a operacao de negocio ja commitou, e falhar a resposta
+    /// depois disso faria o cliente acreditar que nada aconteceu. Falha aqui vira log, e
+    /// o TTL cobre o resto.
+    /// </summary>
+    Task InvalidateAsync(string key);
 }

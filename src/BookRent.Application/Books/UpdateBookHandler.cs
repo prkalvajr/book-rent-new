@@ -105,7 +105,7 @@ public sealed class UpdateBookHandler(
             },
             cancellationToken).ConfigureAwait(false);
 
-        await cache.RemoveAsync(CacheKeys.Book(id), CancellationToken.None).ConfigureAwait(false);
+        await cache.InvalidateAsync(CacheKeys.Book(id)).ConfigureAwait(false);
 
         return updated.ToResponse();
     }

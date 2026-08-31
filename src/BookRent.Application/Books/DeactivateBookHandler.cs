@@ -12,10 +12,10 @@ namespace BookRent.Application.Books;
 /// o desafio pede "desativar ou rejeitar a remocao", e historico encerrado nao impede
 /// a desativacao, so o registro nunca some.
 ///
-/// Diferente do <see cref="UpdateBookHandler"/>, este caminho usa o change tracker:
-/// ele escreve apenas campos descritivos (<c>is_active</c>, <c>deactivated_at</c>,
-/// <c>version</c>) e nao encosta no contador, entao a escrita absoluta e segura e o
-/// token de concorrencia do EF Core basta.
+/// Escreve apenas campos descritivos (<c>is_active</c>, <c>deactivated_at</c>,
+/// <c>version</c>) e nao encosta no contador, entao nao precisa de escrita relativa.
+/// Ainda assim usa UPDATE condicional explicito, e nao o change tracker: a checagem de
+/// emprestimo ativo precisa ser avaliada pelo banco no momento da gravacao (ver abaixo).
 /// </summary>
 public sealed class DeactivateBookHandler(
     IBookRepository books,
@@ -34,6 +34,11 @@ public sealed class DeactivateBookHandler(
                 var book = await books.FindReadOnlyAsync(id, ct).ConfigureAwait(false)
                     ?? throw new DomainException(BookErrors.NotFound, $"Livro {id} nao encontrado.");
 
+                // Capturada ANTES da mutacao. Derivar de book.Version depois do Deactivate
+                // amarraria este codigo a quantos incrementos o dominio faz — um segundo
+                // Touch no futuro quebraria a guarda em silencio.
+                var originalVersion = book.Version;
+
                 book.Deactivate(now);
 
                 // A checagem de emprestimo ativo vai NO PROPRIO UPDATE, e nao num SELECT
@@ -48,7 +53,7 @@ public sealed class DeactivateBookHandler(
                 // available_copies = total_copies equivale a "zero emprestimos ativos"
                 // pela invariante, e o banco a avalia contra o valor corrente.
                 var affected = await books
-                    .DeactivateIfNoActiveLoansAsync(book, expectedVersion: book.Version - 1, ct)
+                    .DeactivateIfNoActiveLoansAsync(book, originalVersion, ct)
                     .ConfigureAwait(false);
 
                 if (affected == 0)
@@ -71,11 +76,7 @@ public sealed class DeactivateBookHandler(
             },
             cancellationToken).ConfigureAwait(false);
 
-        // CancellationToken.None de proposito: a transacao ja commitou. Se o cliente
-        // desconectasse aqui, o token cancelado abortaria o DEL — o RedisCacheStore
-        // repassa OperationCanceledException — e o cache serviria dado obsoleto pela
-        // janela inteira do TTL, com o banco ja alterado.
-        await cache.RemoveAsync(CacheKeys.Book(id), CancellationToken.None).ConfigureAwait(false);
+        await cache.InvalidateAsync(CacheKeys.Book(id)).ConfigureAwait(false);
     }
 
     /// <summary>

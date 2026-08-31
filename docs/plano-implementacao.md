@@ -734,11 +734,14 @@ teste intermitente — aí, respawn do schema entre classes.
    direto no Redis — sem isso a suíte passaria até com o cache morto, já que
    `RedisCacheStore` engole falhas por desenho.
 
-   > **Não implementado:** o teste que derruba o container do Redis para provar a
-   > degradação. A resiliência está no código (`RedisCacheStore` captura tudo que não seja
-   > cancelamento e cai para o banco) e é exercitada de fato — os testes de integração de
-   > catálogo e empréstimo rodam contra Redis real —, mas nenhum teste **remove** a
-   > dependência. É a lacuna conhecida da suíte.
+   > **Implementado em `DegradacaoTests`**, e valeu mais do que o previsto. A suspensão do
+   > Redis revelou que a resiliência **não** funcionava: o filtro `when (ex is not
+   > OperationCanceledException)` partia da premissa de que essa exceção só viria do
+   > chamador, mas o StackExchange.Redis lança `TaskCanceledException` ao desistir da
+   > conexão, e ela escapava — uma escrita **já commitada** respondia 500. Cinco testes
+   > cobrem hoje: `/health/live` em 200 com o Redis fora, leitura e empréstimo servindo do
+   > PostgreSQL, escritas encadeadas sem erro e com teto de tempo, e recuperação após
+   > religar.
 5. **Conflito otimista no `PATCH`** *(além do mínimo exigido)* — dois `PATCH` concorrentes
    no mesmo livro, ambos partindo da mesma versão: exatamente **1 × 200** e **1 × 409**
    com `code = book.concurrent_modification`, e o estado final igual ao da edição que
@@ -765,14 +768,25 @@ teste intermitente — aí, respawn do schema entre classes.
 
 Um commit por etapa, com a suíte verde ao fim de cada uma.
 
-**Concluídas:** 1 a 6. As etapas 5 e 6 saíram num commit só — os testes que provam a
-5 (último exemplar, idempotência) afirmam sobre o estado final via
+**Concluídas: 1 a 8.** As etapas 5 e 6 saíram num commit só — os testes que provam a 5
+(último exemplar, idempotência) afirmam sobre o estado final via
 `GET /books/{id}/availability`, que é entrega da 6; separá-las exigiria commitar código
 sem verificação do resultado.
 
-**Concluídas: 1 a 8.** Depois delas, um code review independente encontrou seis defeitos
-— um de severidade alta (retry transitório duplicando registros) — todos corrigidos com
-teste de regressão. Ver o histórico do Git a partir de `73efe8d`.
+Depois delas, **duas revisões independentes** encontraram oito defeitos, dois de
+severidade alta, todos corrigidos com teste de regressão (histórico a partir de
+`73efe8d`):
+
+| Severidade | Defeito |
+| --- | --- |
+| **Alta** | Retry transitório reexecutava o delegate sem limpar o `ChangeTracker`: dois empréstimos com um decremento |
+| **Alta** | `TaskCanceledException` do cliente Redis escapava do filtro de `catch` e uma escrita **já commitada** respondia 500 |
+| Média | Versão devolvida pelo `PATCH` divergia do banco; `Location` de `POST /loans` dava 404; corrida na desativação; auditoria de empréstimo sem teste; TTL de produção divergente; chave de cache com prefixo duplo |
+
+O padrão dos dois de severidade alta vale registrar: **nenhum aparece em uso normal**.
+Um exige falha transitória de infraestrutura, o outro exige o Redis travado — e o
+segundo só apareceu porque os testes de degradação passaram a suspender a dependência
+de verdade, em vez de confiar no que o código dizia fazer.
 
 | # | Etapa | Entrega |
 | --- | --- | --- |

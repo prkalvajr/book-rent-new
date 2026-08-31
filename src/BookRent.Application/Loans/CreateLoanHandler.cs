@@ -77,10 +77,11 @@ public sealed class CreateLoanHandler(
             cancellationToken).ConfigureAwait(false);
 
         // Depois do commit, nunca antes: dentro da transacao, um Redis lento seguraria o
-        // row lock do livro e enfileiraria todos os emprestimos daquele titulo.
+        // row lock do livro e enfileiraria todos os emprestimos daquele titulo. A
+        // invalidacao tem teto de tempo proprio e nunca propaga excecao — ver ICacheStore.
         if (!result.Replayed)
         {
-            await cache.RemoveAsync(CacheKeys.Book(request.BookId), CancellationToken.None).ConfigureAwait(false);
+            await cache.InvalidateAsync(CacheKeys.Book(request.BookId)).ConfigureAwait(false);
         }
 
         return result;

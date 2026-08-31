@@ -10,12 +10,28 @@ namespace BookRent.Infrastructure.Caching;
 /// Adaptador de <see cref="ICacheStore"/> sobre Redis.
 /// Falha de cache e degradacao, nao erro: a operacao apenas registra log e devolve
 /// o controle para a fonte de verdade (PostgreSQL).
+///
+/// Cuidado com o filtro dos catch. A versao anterior era
+/// <c>when (ex is not OperationCanceledException)</c>, partindo da premissa de que essa
+/// excecao so poderia vir do chamador. E FALSO: com o Redis travado, o
+/// StackExchange.Redis cancela as mensagens que ficaram em backlog e o
+/// <c>RedisCache</c> lanca <c>TaskCanceledException</c> — que herda de
+/// <c>OperationCanceledException</c> — mesmo recebendo <c>CancellationToken.None</c>.
+/// Ela escapava, nenhum IExceptionHandler a reconhecia, e uma escrita ja COMMITADA
+/// respondia 500. O criterio correto e o estado do token, nao o tipo da excecao.
 /// </summary>
 internal sealed partial class RedisCacheStore(
     IDistributedCache cache,
     IOptions<CacheOptions> options,
     ILogger<RedisCacheStore> logger) : ICacheStore
 {
+    /// <summary>
+    /// Teto da invalidacao pos-commit. Curto de proposito: com o pool dimensionado em 8
+    /// conexoes por replica, segurar a resposta por segundos apos o commit esgota o pool
+    /// e transforma queda de cache em indisponibilidade de escrita.
+    /// </summary>
+    private static readonly TimeSpan InvalidationTimeout = TimeSpan.FromMilliseconds(500);
+
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
 
     private readonly CacheOptions _options = options.Value;
@@ -28,7 +44,11 @@ internal sealed partial class RedisCacheStore(
 
             return payload is null ? default : JsonSerializer.Deserialize<T>(payload, SerializerOptions);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
         {
             LogReadFailure(logger, key, ex);
             return default;
@@ -47,31 +67,53 @@ internal sealed partial class RedisCacheStore(
             var payload = JsonSerializer.Serialize(value, SerializerOptions);
             await cache.SetStringAsync(key, payload, entryOptions, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
         {
             LogWriteFailure(logger, key, ex);
         }
     }
 
-    public async Task RemoveAsync(string key, CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public async Task InvalidateAsync(string key)
     {
-        try
+        // Limitar por CancellationToken NAO funciona aqui: o StackExchange.Redis nao
+        // aborta um comando ja despachado, entao a chamada so retorna quando o
+        // asyncTimeout dele (5 s por padrao) estoura. Medido: quatro escritas levavam
+        // ~21 s com o Redis travado.
+        //
+        // A saida e parar de ESPERAR em vez de tentar cancelar. A remocao continua em
+        // background e a resposta segue.
+        var remocao = RemoverSemPropagarAsync(key);
+        var concluida = await Task
+            .WhenAny(remocao, Task.Delay(InvalidationTimeout))
+            .ConfigureAwait(false);
+
+        if (concluida != remocao)
         {
-            await cache.RemoveAsync(key, cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            LogInvalidationFailure(logger, key, ex);
+            // A tarefa orfa e segura: RemoverSemPropagarAsync nunca lanca, entao nao
+            // deixa excecao nao observada. Se ela concluir depois, otimo; se nao, o TTL
+            // cobre a divergencia — que e exatamente o papel dele.
+            LogInvalidationTimeout(logger, key, InvalidationTimeout.TotalMilliseconds);
         }
     }
 
-    public async Task RemoveAsync(IEnumerable<string> keys, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Remove capturando tudo, inclusive cancelamento: nao ha chamador a quem propagar,
+    /// porque a operacao de negocio ja commitou. E o que torna a tarefa orfa segura.
+    /// </summary>
+    private async Task RemoverSemPropagarAsync(string key)
     {
-        ArgumentNullException.ThrowIfNull(keys);
-
-        foreach (var key in keys)
+        try
         {
-            await RemoveAsync(key, cancellationToken).ConfigureAwait(false);
+            await cache.RemoveAsync(key).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            LogInvalidationFailure(logger, key, ex);
         }
     }
 
@@ -88,8 +130,14 @@ internal sealed partial class RedisCacheStore(
     private static partial void LogWriteFailure(ILogger logger, string cacheKey, Exception exception);
 
     [LoggerMessage(
+        EventId = 1003,
+        Level = LogLevel.Warning,
+        Message = "Invalidacao da chave {CacheKey} excedeu {TimeoutMs} ms; segue em background e o TTL cobre a divergencia")]
+    private static partial void LogInvalidationTimeout(ILogger logger, string cacheKey, double timeoutMs);
+
+    [LoggerMessage(
         EventId = 1002,
         Level = LogLevel.Warning,
-        Message = "Falha ao invalidar a chave {CacheKey} no Redis")]
+        Message = "Falha ao invalidar a chave {CacheKey} no Redis; o TTL cobre a divergencia")]
     private static partial void LogInvalidationFailure(ILogger logger, string cacheKey, Exception exception);
 }
